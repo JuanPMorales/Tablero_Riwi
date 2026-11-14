@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "buildCommand": "node -e \"require('node:fs').mkdirSync('vercel-static',{recursive:true})\"",
+  "buildCommand": "node -e \"const fs = require('node:fs'); fs.mkdirSync('vercel-static', { recursive: true }); fs.writeFileSync('vercel-static/robots.txt', 'User-agent: *\\nDisallow: /\\n')\"",
   "outputDirectory": "vercel-static",
   "functions": {
     "api/*.js": { "includeFiles": "{index.html,ui.js,ui.css,lessons.json}", "maxDuration": 30 }
