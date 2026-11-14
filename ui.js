@@ -46,10 +46,12 @@ async function api(path, data) {
 }
 
 let state, selected, focus, week, pending = false, chatPending = false, chatLoad = 0;
+let connection, googlePending, threadHistory = [];
 let activeTab = 'check';
 let mutationQueue = Promise.resolve();
 $('logout').onclick = async () => {
   try {
+    disconnect();
     await mutationQueue;
     await api('/api/auth/logout', {});
     location.replace('/login');
@@ -449,8 +451,168 @@ function renderHistory() {
     ...(records.length ? records : [el('p', 'Aún no hay días completados.')]));
 }
 function renderMessages(history) {
+  threadHistory = history;
   $('messages').replaceChildren(...history.map(row => box('article', 'card msg ' + row.role,
     el('p', row.role === 'user' ? 'Tú' : 'Asistente Riwi', 'message-role'), el('div', row.content))));
+}
+const modelOptions = {
+  gemini: ['gemini-3.8-flash', 'Usa una clave de Google AI Studio.'],
+  'google-cloud': ['gemini-3.5-flash-lite', 'Selecciona tu cuenta de Google y usa un proyecto con acceso a Gemini en Google Cloud.'],
+  openai: ['', 'Usa una clave de la plataforma API de OpenAI. El plan de ChatGPT requiere una integración autorizada por OpenAI.'],
+  claude: ['', 'Usa una clave de API de Claude Console de un workspace autorizado.'],
+  ollama: ['', 'Escribe el nombre que aparece en ollama list. El navegador se conecta al Ollama de este dispositivo.'],
+  agent: ['', 'El agente debe exponer /v1/chat/completions en este equipo y permitir el origen del tablero.'],
+};
+const localProvider = provider => provider === 'ollama' || provider === 'agent';
+function connectionStatus(message, error = false) {
+  $('connection-status').textContent = message;
+  $('connection-status').toggleAttribute('data-error', error);
+}
+function updateConnectionForm() {
+  const provider = $('provider').value;
+  const [model, description] = modelOptions[provider];
+  const local = localProvider(provider);
+  $('model').placeholder = model || 'Nombre exacto del modelo';
+  $('provider-hint').textContent = description;
+  $('project-field').hidden = provider !== 'google-cloud';
+  $('project').required = provider === 'google-cloud';
+  $('credential-field').hidden = local || provider === 'google-cloud';
+  $('credential').required = !$('credential-field').hidden;
+  $('credential').value = '';
+  $('port-field').hidden = !local || provider === 'ollama';
+  $('local-port').placeholder = '1234';
+  $('usage-field').hidden = local;
+  $('usage-consent').required = !local;
+  $('usage-consent').checked = false;
+  $('connect-model').textContent = provider === 'google-cloud' ? 'Continuar con Google' : 'Conectar';
+}
+function chatControls() {
+  const ready = Boolean(connection || state?.chatReady);
+  $('send').disabled = !ready || chatPending;
+  $('disconnect-model').hidden = !connection && !googlePending;
+  $('active-model').textContent = connection ? `Modelo activo · ${connection.model}`
+    : state?.chatReady ? 'Modelo activo · Ollama del servidor' : 'Conecta un modelo para enviar preguntas.';
+}
+function connect(modelConnection) {
+  connection = modelConnection;
+  $('chat-connection').open = false;
+  connectionStatus('Seleccionado para este chat · ' + modelConnection.model + '.');
+  chatControls();
+}
+function disconnect() {
+  googlePending?.popup.close();
+  googlePending = undefined;
+  connection = undefined;
+  $('credential').value = '';
+  connectionStatus('Modelo desconectado.');
+  chatControls();
+}
+function randomOAuthValue() {
+  return btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+}
+async function startGoogle(modelConnection) {
+  if (!state.googleOAuth) throw new Error('Falta configurar Google OAuth en el tablero.');
+  googlePending?.popup.close();
+  const popup = window.open('', 'riwi-google', 'popup,width=520,height=660');
+  if (!popup) throw new Error('Permite la ventana emergente y vuelve a intentar.');
+  const verifier = randomOAuthValue();
+  const pending = { popup, verifier, nonce: randomOAuthValue(), modelConnection, expires: Date.now() + 300000 };
+  googlePending = pending;
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  if (googlePending !== pending) return;
+  const challenge = btoa(String.fromCharCode(...new Uint8Array(hash))).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+  const query = new URLSearchParams({ client_id: state.googleOAuth, redirect_uri: location.origin + '/google-callback',
+    response_type: 'code', scope: 'https://www.googleapis.com/auth/cloud-platform', access_type: 'online',
+    prompt: 'select_account', state: pending.nonce, code_challenge: challenge, code_challenge_method: 'S256' });
+  popup.location = 'https://accounts.google.com/o/oauth2/v2/auth?' + query;
+  connectionStatus('Completa la autorización en Google.');
+  chatControls();
+}
+window.addEventListener('message', async event => {
+  const authorization = googlePending;
+  if (!authorization || event.origin !== location.origin || event.source !== authorization.popup
+    || event.data?.type !== 'riwi-google' || event.data.state !== authorization.nonce) return;
+  try {
+    if (!event.data.code || Date.now() >= authorization.expires) throw new Error('La autorización fue cancelada o venció.');
+    const token = await api('/api/google/token', { code: event.data.code, verifier: authorization.verifier });
+    if (googlePending === authorization) connect({ ...authorization.modelConnection, credential: token.accessToken,
+      expires: Date.now() + Number(token.seconds) * 1000 });
+  } catch (error) {
+    if (googlePending === authorization) connectionStatus(error.message, true);
+  } finally {
+    if (googlePending === authorization) googlePending = undefined;
+    chatControls();
+  }
+});
+$('provider').onchange = updateConnectionForm;
+$('disconnect-model').onclick = disconnect;
+window.addEventListener('pagehide', () => {
+  if (connection || googlePending || $('credential').value) disconnect();
+});
+$('model-form').onsubmit = async event => {
+  event.preventDefault();
+  const provider = $('provider').value;
+  const model = $('model').value.trim();
+  const project = $('project').value.trim();
+  const credential = $('credential').value.trim();
+  if (!/^[\w.:-]{1,120}$/.test(model)) return connectionStatus('Escribe el nombre exacto del modelo o agente.', true);
+  if (provider === 'google-cloud' && !/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(project)) {
+    return connectionStatus('Escribe un ID de proyecto de Google Cloud válido.', true);
+  }
+  disconnect();
+  try {
+    if (localProvider(provider)) {
+      const port = provider === 'ollama' ? 11434 : Number($('local-port').value || 1234);
+      connect({ provider, model, port });
+    } else if (provider === 'google-cloud') {
+      await startGoogle({ provider, model, project, allowCharges: true });
+    } else if (/^[\x21-\x7e]{12,4096}$/.test(credential)) {
+      connect({ provider, model, credential, allowCharges: true });
+    } else {
+      connectionStatus('Revisa tu clave de API.', true);
+    }
+  } catch (error) {
+    disconnect();
+    connectionStatus(error.message, true);
+  }
+};
+updateConnectionForm();
+
+async function askLocal(modelConnection, data) {
+  const { provider, port, model } = modelConnection;
+  const base = `http://127.0.0.1:${port}`;
+  const options = { signal: AbortSignal.timeout(90000), redirect: 'error', credentials: 'omit', targetAddressSpace: 'loopback' };
+  const day = lesson(data.id);
+  const [i, j] = data.step.split('-').map(Number);
+  const quest = data.step && day.quests[i];
+  const context = { course: state.track, module: moduleName(day.module), week: day.week, day: day.day,
+    title: day.title, technology: day.technology, summary: day.summary,
+    ...(quest ? { quest: quest[0], context: quest[1], instruction: quest[2][j], requirements: quest[3] } : {}),
+    stepsDone: completed(day).count };
+  const prompt = data.guide ? 'Guíame en este paso con un ejemplo y una prueba.' : data.message;
+  const messages = [{ role: 'system', content: 'Eres tutor de Riwi en español. Usa la tecnología indicada. Para las guías, explica qué hacer, los pasos, un ejemplo y cómo comprobarlo.' },
+    { role: 'user', content: JSON.stringify(context) }, ...threadHistory.slice(-10).map(({ role, content }) => ({ role, content: content.slice(0, 4000) })),
+    { role: 'user', content: prompt }];
+  try {
+    if (provider === 'ollama') {
+      const tags = await fetch(base + '/api/tags', options);
+      if (!tags.ok || !(await tags.json()).models?.some(item => item.name === model && !item.remote_model && !item.remote_host)) {
+        throw new Error('El modelo indicado debe estar descargado en Ollama.');
+      }
+    }
+    const ollama = provider === 'ollama';
+    const response = await fetch(base + (ollama ? '/api/chat' : '/v1/chat/completions'), { ...options,
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, messages, stream: false,
+        ...(ollama ? { options: { num_predict: 1000 } } : { max_tokens: 1000 }) }) });
+    if (!response.ok) throw new Error('El servicio local rechazó la consulta. Revisa el modelo y el puerto.');
+    const result = await response.json();
+    const answer = (ollama ? result.message?.content : result.choices?.[0]?.message?.content)?.trim();
+    if (!answer) throw new Error('El modelo local devolvió una respuesta vacía.');
+    return answer.slice(0, 16000);
+  } catch (error) {
+    if (error instanceof TypeError || error.name === 'TimeoutError') throw new Error('No se pudo conectar al servicio local. Revisa que esté abierto, que permita el origen del tablero y que el navegador tenga permiso de acceso local.');
+    throw error;
+  }
 }
 async function openChat(selection, guide) {
   const day = lesson(selection?.id);
@@ -463,40 +625,49 @@ async function openChat(selection, guide) {
   $('chat-context').replaceChildren(box('article', 'card', el('small', state.track),
     el('h3', quest ? cursorLabel(focus, day) : fullName(day)), el('p', quest ? quest[1] : day.summary),
     el('p', quest ? quest[2][j] : day.title), el('small', day.technology || 'Tecnología pendiente de verificar.'),
-    ...(quest ? [button('Generar guía', () => sendChat({ ...selection, guide: true }), 'secondary')] : []),
+    ...(quest ? [button('Ver o generar guía de IA', () => sendChat({ ...selection, guide: true }), 'secondary'),
+      button('Pedir más explicación', () => sendChat({ ...selection, message: 'Explícame este paso con más detalle y otro ejemplo.' }), 'secondary')] : []),
     box('div', 'row', openDay(day.id, focus.step),
       button('Chat general del día', () => openChat({ id: day.id, step: '' }, false), 'secondary'),
       ...(selected !== day.id ? [button('Chat del checklist seleccionado', () => openChat({ id: selected, step: '' }, false), 'secondary')] : [])),
-    el('small', 'Para conversar con ChatGPT, abre su página e inicia sesión con tu propia cuenta. La guía del tablero se guarda aquí.'),
-    box('div', 'row', link('Iniciar sesión en ChatGPT', 'https://chatgpt.com/auth/login', 'button'),
-      button('Copiar contexto', async () => {
-        const context = [state.track, fullName(day), day.title, day.technology, quest ? cursorLabel(selection, day) : '',
-          quest ? quest[1] : day.summary, quest ? quest[2][j] : '', 'Avance: ' + completed(day).count + ' pasos completados.'];
-        try {
-          await navigator.clipboard.writeText(context.filter(Boolean).join('\n'));
-          status('Contexto copiado. Pégalo en tu conversación de ChatGPT.');
-        } catch {
-          status('No se pudo copiar el contexto.', true);
-        }
-      }, 'secondary'))));
-  $('ask').hidden = !state.chatReady;
+    el('small', 'Puedes usar la guía del tablero o conectar un modelo para generar guías y conversar aquí.')));
+  threadHistory = [];
   $('messages').replaceChildren(el('p', 'Cargando conversación…'));
-  $('send').disabled = !state.chatReady || chatPending;
+  chatControls();
   try {
     const result = await api('/api/focus', selection);
     if (stamp !== chatLoad) return;
     renderMessages(result.history);
-    if (quest && (guide || !result.history.length)) await sendChat({ ...selection, guide: true });
+    if (quest && (guide || !result.history.length)) await sendChat({ ...selection, guide: true, basic: true }, false);
   } catch (error) {
     if (stamp === chatLoad) status(error.message, true);
   }
 }
-async function sendChat(data) {
+async function sendChat(data, useConnection = true) {
   if (chatPending) return;
   chatPending = true;
   $('send').disabled = true;
   status('Preparando respuesta…');
   try {
+    const active = useConnection ? connection : undefined;
+    if (data.guide && useConnection) {
+      const saved = await api('/api/chat', { ...data, lookup: true });
+      if (saved) {
+        if (focus?.id === data.id && focus?.step === data.step) renderMessages(saved);
+        status('Guía guardada cargada.');
+        return;
+      }
+      if (!active && !state.chatReady) {
+        $('chat-connection').open = true;
+        throw new Error('Conecta un modelo para generar la primera guía de IA.');
+      }
+    }
+    if (active?.expires && Date.now() >= active.expires - 5000) {
+      disconnect();
+      throw new Error('La sesión de Google venció. Vuelve a conectar.');
+    }
+    if (active && localProvider(active.provider)) data = { ...data, localAnswer: await askLocal(active, data) };
+    else if (active) data = { ...data, connection: active };
     const history = await api('/api/chat', data);
     if (focus?.id === data.id && focus?.step === data.step) renderMessages(history);
     if (!data.guide && focus?.id === data.id && focus?.step === data.step) $('question').value = '';
@@ -505,12 +676,12 @@ async function sendChat(data) {
     status(error.message, true);
   } finally {
     chatPending = false;
-    $('send').disabled = !state.chatReady;
+    chatControls();
   }
 }
 $('ask').onsubmit = event => {
   event.preventDefault();
-  if (focus && state.chatReady) sendChat({ ...focus, message: $('question').value });
+  if (focus && (connection || state.chatReady)) sendChat({ ...focus, message: $('question').value });
 };
 function render() {
   renderSources();

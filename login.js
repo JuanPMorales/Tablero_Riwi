@@ -4,7 +4,6 @@ const submit = get('submit-account');
 const toggle = get('toggle-account');
 const status = get('login-status');
 const password = get('password');
-const previous = get('previous');
 let register = false;
 
 toggle.onclick = () => {
@@ -17,12 +16,7 @@ toggle.onclick = () => {
   password.minLength = register ? 12 : 1;
   password.value = '';
   get('password-hint').hidden = !register;
-  get('claim').hidden = !register;
-  get('claim').open = false;
-  previous.disabled = true;
-  previous.value = '';
 };
-get('claim').ontoggle = event => { previous.disabled = !register || !event.target.open; };
 form.onsubmit = async event => {
   event.preventDefault();
   submit.disabled = toggle.disabled = true;

@@ -7,7 +7,7 @@ const options = { N: 2 ** 15, r: 8, p: 3, maxmem: 64 * 1024 * 1024 };
 const lifetime = 60 * 60 * 24 * 14;
 const windowMs = 15 * 60 * 1000;
 
-export function accountAuth(db, { secure, previousPassword }) {
+export function accountAuth(db, { secure }) {
   const { execute, transaction } = db;
   const cookie = secure ? '__Host-riwi_session' : 'riwi_session';
   const get = async (sql, args) => (await execute(sql, args)).rows[0];
@@ -45,25 +45,20 @@ export function accountAuth(db, { secure, previousPassword }) {
   }
   async function authenticate(req, res, payload, register, address) {
     const document = typeof payload.document === 'string' ? payload.document.trim() : '';
-    const { password, previous } = payload;
+    const { password } = payload;
     if (!/^\d{5,12}$/.test(document) || typeof password !== 'string' || password.length > 128
-      || password.length < (register ? 12 : 1) || (previous !== undefined && (typeof previous !== 'string' || previous.length > 512))) {
+      || password.length < (register ? 12 : 1)) {
       fail(400, 'Ingresa una cédula de 5 a 12 dígitos y una contraseña válida. Para crear una cuenta, usa al menos 12 caracteres.');
     }
     const addressKey = digest(address).toString('hex');
     const documentKey = digest(document).toString('hex');
     const buckets = register ? [[`register:${addressKey}`, 6]]
       : [[`login:${addressKey}`, 24], [`document:${documentKey}`, 8]];
-    if (register && previous) buckets.push(['claim:owner', 12]);
     await limit(buckets);
     let id;
     let credentials;
     if (register) {
-      const claim = Boolean(previous);
-      if (claim && (!previousPassword || !timingSafeEqual(digest(previous), digest(previousPassword)))) {
-        fail(401, 'La contraseña anterior del tablero es incorrecta.');
-      }
-      id = claim ? 'owner' : randomUUID();
+      id = randomUUID();
       const salt = randomBytes(16).toString('hex');
       const hash = (await derive(password, salt, 64, options)).toString('hex');
       credentials = [id, document, salt, hash];
@@ -79,7 +74,7 @@ export function accountAuth(db, { secure, previousPassword }) {
     await transaction(async () => {
       if (credentials) {
         const result = await execute('INSERT OR IGNORE INTO accounts VALUES (?,?,?,?)', credentials);
-        if (!result.changes) fail(409, id === 'owner' ? 'El tablero anterior ya se vinculó o la cédula ya está registrada.' : 'Ya existe una cuenta con esa cédula.');
+        if (!result.changes) fail(409, 'Ya existe una cuenta con esa cédula.');
       }
       await execute('DELETE FROM logins WHERE expires<=?', [now]);
       if (previousToken) await execute('DELETE FROM logins WHERE token=?', [digest(previousToken).toString('hex')]);

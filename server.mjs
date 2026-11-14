@@ -3,11 +3,13 @@ import { timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { MOODLE, COURSE, MY_COURSES, GENIALLY, AGENDA, MODULES, TRAYECTO, ZONE } from './catalog.mjs';
-import { bogota, keys, openStore } from './store.mjs';
+import { bogota, guidePrompt, keys, openStore } from './store.mjs';
 import { localAnswer, offlineGuide } from './guide.mjs';
 import { accountAuth, digest } from './auth.mjs';
+import { chatTurns, cloudAnswer, tutor } from './providers.mjs';
 
-const { RIWI_PASSWORD, RIWI_ORIGIN, RIWI_MOODLE_TOKEN, CRON_SECRET } = process.env;
+const { RIWI_ORIGIN, RIWI_MOODLE_TOKEN, CRON_SECRET, RIWI_OWNER_ACCOUNT_ID, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
+const googleOAuth = GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET ? GOOGLE_CLIENT_ID : null;
 const onVercel = process.env.VERCEL === '1';
 const RIWI_OLLAMA_MODEL = onVercel ? undefined : process.env.RIWI_OLLAMA_MODEL;
 const production = process.env.NODE_ENV === 'production';
@@ -41,6 +43,8 @@ const assets = new Map([
   ['/', ['index.html', 'text/html']], ['/ui.css', ['ui.css', 'text/css']],
   ['/ui.js', ['ui.js', 'application/javascript']], ['/login', ['login.html', 'text/html']],
   ['/login.js', ['login.js', 'application/javascript']],
+  ['/google-callback', ['google-callback.html', 'text/html']],
+  ['/google-callback.js', ['google-callback.js', 'application/javascript']],
 ].map(([path, [file, type]]) => [path, [readFileSync(new URL(file, import.meta.url)), type]]));
 
 function serveAsset(res, path) {
@@ -100,9 +104,9 @@ async function body(req) {
     throw fault(400, 'El contenido debe ser un objeto JSON válido.');
   }
 }
-async function state(store, account) {
-  return { ...await store.snapshot(), zone: ZONE, canEdit: account === 'owner',
-    chatReady: Boolean(RIWI_OLLAMA_MODEL), moodleProbe: Boolean(RIWI_MOODLE_TOKEN),
+async function state(store, canEdit) {
+  return { ...await store.snapshot(), zone: ZONE, canEdit,
+    chatReady: Boolean(RIWI_OLLAMA_MODEL), googleOAuth, moodleProbe: Boolean(RIWI_MOODLE_TOKEN),
     links: { course: COURSE, courses: MY_COURSES, calendar: MOODLE + '/my/', login: MOODLE + '/login/index.php', genially: GENIALLY, agenda: AGENDA } };
 }
 async function lessonFor(store, id) {
@@ -135,7 +139,7 @@ async function request(req, res, pathname) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-src https://teamlead.up.railway.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+  res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' http://127.0.0.1:*; frame-src https://teamlead.up.railway.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   if (production || onVercel) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
   const path = typeof pathname === 'string' ? pathname : new URL(req.url, origin).pathname;
   if (path === '/api/cron') {
@@ -145,15 +149,14 @@ async function request(req, res, pathname) {
     }
     return json(res, 200, { created: await generateNotice() });
   }
-  if (req.method === 'GET' && ['/login', '/login.js', '/ui.css'].includes(path)) return serveAsset(res, path);
+  if (req.method === 'GET' && ['/login', '/login.js', '/ui.css', '/google-callback', '/google-callback.js'].includes(path)) return serveAsset(res, path);
   const accountEndpoint = path === '/api/auth/login' || path === '/api/auth/register' || path === '/api/auth/logout';
   if (accountEndpoint && req.method !== 'POST') throw fault(405, 'Método no permitido.');
   if (req.method === 'POST' && !writeOriginAllowed(req.headers)) {
     throw fault(403, 'Origen no permitido. Abre el tablero directamente y vuelve a intentar.');
   }
   const database = await getStore();
-  const auth = accountAuth(database.db, { secure: production || onVercel,
-    previousPassword: RIWI_PASSWORD?.length >= 16 ? RIWI_PASSWORD : undefined });
+  const auth = accountAuth(database.db, { secure: production || onVercel });
   if (accountEndpoint) {
     if (path === '/api/auth/logout') await auth.logout(req, res);
     else await auth.authenticate(req, res, await body(req), path.endsWith('/register'),
@@ -169,13 +172,14 @@ async function request(req, res, pathname) {
     throw fault(401, 'Inicia sesión en el tablero.');
   }
   if (req.method === 'GET' && assets.has(path)) return serveAsset(res, path);
+  const canEdit = account === 'owner' || account === RIWI_OWNER_ACCOUNT_ID;
   const store = database.forAccount(account);
   if (req.method === 'GET' && path === '/health') return json(res, 200, { ok: true });
   if (req.method === 'GET' && path === '/api/state') {
     if (onVercel && process.env.RIWI_SCHEDULER !== '0' && bogota().hour >= 5 && !await store.hasNotice(bogota().date)) {
       await store.makeNotice().catch(error => console.error('Aviso diario:', error.code || error.name));
     }
-    return json(res, 200, await state(store, account));
+    return json(res, 200, await state(store, canEdit));
   }
   if (req.method === 'GET' && /^\/api\/chat\/\d+(\/[0-9]+-[0-9]+)?$/.test(path)) {
     const [, , , id, step = ''] = path.split('/');
@@ -184,15 +188,35 @@ async function request(req, res, pathname) {
     return json(res, 200, await store.chatHistory(lesson.id, step));
   }
   if (req.method !== 'POST') throw fault(404, 'Ruta no encontrada.');
-  if (account !== 'owner' && ['/api/import', '/api/session', '/api/moodle'].includes(path)) {
+  if (!canEdit && ['/api/import', '/api/session', '/api/moodle'].includes(path)) {
     throw fault(403, 'Solo el titular del tablero puede editar las fichas y el calendario compartidos.');
   }
   const p = await body(req);
+  if (path === '/api/google/token') {
+    if (!googleOAuth) throw fault(503, 'El inicio de sesión con Google aún no está configurado.');
+    if (!text(p.code, 2048) || !/^[A-Za-z0-9_-]{43}$/.test(p.verifier || '')) throw fault(400, 'La autorización no es válida.');
+    let result;
+    try {
+      const response = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
+        body: new URLSearchParams({ code: p.code, code_verifier: p.verifier, client_id: GOOGLE_CLIENT_ID,
+          client_secret: GOOGLE_CLIENT_SECRET, grant_type: 'authorization_code', redirect_uri: req.headers.origin + '/google-callback' }),
+      });
+      if (response.ok) result = await response.json();
+    } catch {
+      throw fault(502, 'No se pudo completar la conexión con Google. Vuelve a intentar.');
+    }
+    if (!result?.access_token || !Number.isFinite(result.expires_in) || result.expires_in <= 0
+      || !result.scope?.split(' ').includes('https://www.googleapis.com/auth/cloud-platform')) {
+      throw fault(400, 'Google no concedió acceso a Cloud. Vuelve a conectar o revisa el dominio autorizado.');
+    }
+    return json(res, 200, { accessToken: result.access_token, seconds: result.expires_in });
+  }
   if (path === '/api/ticks') {
     if (!integer(p.id)) throw fault(400, 'Día inválido.');
     const { next, invalid } = await store.applyTicks(p.id, p.changes, p.finish === true);
     if (invalid) throw fault(400, 'Las casillas no corresponden a este día.');
-    return json(res, 200, { ...await state(store, account), next });
+    return json(res, 200, { ...await state(store, canEdit), next });
   }
   if (path === '/api/import') {
     const previous = p.id ? await lessonFor(store, p.id) : null;
@@ -208,7 +232,7 @@ async function request(req, res, pathname) {
       technology: p.technology.trim(), url: p.url, quests: p.quests, consulted: bogota().date });
     if (!id) throw fault(409, 'Ya existe esa ficha o el cambio alteraría la correspondencia con tu avance o chat.');
     await store.recordMoodle('manual');
-    return json(res, 200, { ...await state(store, account), selected: id });
+    return json(res, 200, { ...await state(store, canEdit), selected: id });
   }
   if (path === '/api/session') {
     if (p.id != null && !integer(p.id)) throw fault(400, 'Sesión inválida.');
@@ -223,13 +247,13 @@ async function request(req, res, pathname) {
       if (!(await store.saveSession({ id: p.id, lesson: p.lesson ?? null, date: p.date, module: p.module,
         label: p.label.trim(), hours: p.hours.trim(), source: p.source }))) throw fault(409, 'Edita la sesión existente de ese día.');
     }
-    return json(res, 200, await state(store, account));
+    return json(res, 200, await state(store, canEdit));
   }
   if (path === '/api/moodle') {
     if (p.action === 'probe' && RIWI_MOODLE_TOKEN) await store.recordMoodle(await probeMoodle());
     else if (['expired', 'manual'].includes(p.action)) await store.recordMoodle(p.action);
     else throw fault(400, 'Selecciona un estado de Moodle válido.');
-    return json(res, 200, await state(store, account));
+    return json(res, 200, await state(store, canEdit));
   }
   if (path === '/api/focus' || path === '/api/chat') {
     const lesson = await lessonFor(store, p.id);
@@ -240,28 +264,49 @@ async function request(req, res, pathname) {
       return json(res, 200, { history: await store.chatHistory(lesson.id, step) });
     }
     const guide = p.guide === true && step;
+    const basic = p.basic === true || (!p.connection && p.localAnswer === undefined && !RIWI_OLLAMA_MODEL && p.lookup !== true);
+    if (guide) {
+      const history = await store.guideHistory(lesson.id, step, basic);
+      if (history || p.lookup === true) return json(res, 200, history);
+    }
     if (!guide && !text(p.message, 4000)) throw fault(400, 'Escribe una pregunta.');
-    if (!guide && !RIWI_OLLAMA_MODEL) throw fault(503, 'Para conversar, abre ChatGPT e inicia sesión con tu propia cuenta.');
+    if (!guide && !p.connection && !p.localAnswer && !RIWI_OLLAMA_MODEL) throw fault(503, 'Conecta un modelo para conversar.');
     const thread = account + '/' + lesson.id + '/' + step;
     if (busy.has(thread) || (RIWI_OLLAMA_MODEL && busy.size)) throw fault(409, 'Ya hay una respuesta en curso.');
     busy.add(thread);
-    const prompt = guide ? 'Guíame en este paso con un ejemplo y una prueba.' : p.message.trim();
+    let prompt = guide ? guidePrompt : p.message.trim();
+    if (typeof p.connection?.credential === 'string' && p.connection.credential) {
+      prompt = prompt.replaceAll(p.connection.credential, '[credencial omitida]');
+    }
     try {
       let answer;
-      if (RIWI_OLLAMA_MODEL) {
+      if (p.localAnswer !== undefined) {
+        if (p.connection || !text(p.localAnswer, 16000)) throw fault(400, 'La respuesta local no es válida.');
+        answer = p.localAnswer;
+      } else if (p.connection || (RIWI_OLLAMA_MODEL && !(guide && p.basic === true))) {
         const [i, j] = step.split('-').map(Number);
         const quest = step && lesson.quests[i];
         const { quests, ...day } = lesson;
         const context = { track: TRAYECTO, module: MODULES.find(m => m.id === lesson.module).name, day,
           quest: quest ? { number: i + 1, title: quest[0], context: quest[1], ...quest[3] } : quests.map(q => q[0]),
           step: quest ? { number: j + 1, instruction: quest[2][j] } : null, marks: [...await store.ticks(lesson.id)] };
-        try {
-          answer = await localAnswer(RIWI_OLLAMA_MODEL, context, await store.chatHistory(lesson.id, step), prompt);
-        } catch {
-          if (!guide) throw fault(503, 'El modelo local no respondió. Revisa Ollama e inténtalo de nuevo.');
+        const history = await store.chatHistory(lesson.id, step);
+        if (p.connection) {
+          if (typeof p.connection !== 'object' || p.connection.allowCharges !== true) {
+            throw fault(400, 'Confirma el uso de la cuota de tu proveedor antes de enviar la consulta.');
+          }
+          answer = await cloudAnswer(p.connection, chatTurns(context, history, prompt));
+        } else {
+          try {
+            answer = await localAnswer(RIWI_OLLAMA_MODEL, chatTurns(context, history, prompt), tutor);
+          } catch {
+            if (!guide) throw fault(503, 'El modelo local no respondió. Revisa Ollama e inténtalo de nuevo.');
+          }
         }
       }
-      answer ??= offlineGuide(lesson, step);
+      const usedBasic = !answer;
+      answer = usedBasic ? 'Guía del tablero\n\n' + offlineGuide(lesson, step) : 'Respuesta de IA\n\n' + answer;
+      if (guide) return json(res, 200, await store.saveGuide(lesson.id, step, usedBasic, answer));
       await store.saveChat(lesson.id, step, prompt, answer);
       return json(res, 200, await store.chatHistory(lesson.id, step));
     } finally {

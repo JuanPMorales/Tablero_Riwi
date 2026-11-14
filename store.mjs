@@ -10,6 +10,10 @@ export function bogota(now = new Date()) {
   return { date: parts.year + '-' + parts.month + '-' + parts.day, hour: Number(parts.hour) };
 }
 export const keys = lesson => lesson.quests.flatMap((quest, i) => quest[2].map((_, j) => i + '-' + j));
+export const guidePrompt = 'Guíame en este paso con un ejemplo y una prueba.';
+const savedGuide = (history, basic) => history.find((row, i) => row.role === 'assistant'
+  && history[i - 1]?.role === 'user' && history[i - 1].content === guidePrompt
+  && row.content.startsWith(basic ? 'Guía del tablero\n\n' : 'Respuesta de IA\n\n'));
 
 const schema = `
   CREATE TABLE IF NOT EXISTS lessons (id INTEGER PRIMARY KEY, data TEXT NOT NULL);
@@ -237,7 +241,17 @@ export async function openStore(path, db = localDatabase(path)) {
       return execute('INSERT INTO account_messages(account,lesson,step,role,content,created) VALUES(?,?,?,?,?,?),(?,?,?,?,?,?)',
         [account, id, step, 'user', prompt, now, account, id, step, 'assistant', answer, now]);
     }
-    return { find, ticks, applyTicks, hasNotice, makeNotice, snapshot, chatHistory, saveChat,
+    async function guideHistory(id, step, basic) {
+      const history = await chatHistory(id, step);
+      return savedGuide(history, basic) ? history : null;
+    }
+    function saveGuide(id, step, basic, answer) {
+      return transaction(async () => {
+        if (!await guideHistory(id, step, basic)) await saveChat(id, step, guidePrompt, answer);
+        return chatHistory(id, step);
+      });
+    }
+    return { find, ticks, applyTicks, hasNotice, makeNotice, snapshot, chatHistory, saveChat, guideHistory, saveGuide,
       focus: (id, step) => setPersonal('chat-focus', JSON.stringify({ id, step })) };
   }
   function saveLesson(id, data) {

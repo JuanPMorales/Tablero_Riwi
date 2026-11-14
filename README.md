@@ -5,8 +5,8 @@ Tablero personal para Desarrollo de Software, Trayecto 2, clan Ritchie. Organiza
 ## Ejecutar en Windows
 
 1. Instala [Node.js 24](https://nodejs.org/). No hay paquetes de npm que instalar.
-2. En el directorio del proyecto, ejecuta `Copy-Item .env.example .env`. Mantén `RIWI_PASSWORD` con la contraseña anterior si ya tenías un tablero. En una instalación nueva, puedes definir una cadena privada de al menos 16 caracteres para habilitar la edición de fichas y calendario al crear la cuenta titular.
-3. Ejecuta `node --env-file=.env server.mjs` y abre [el tablero local](http://127.0.0.1:8765/). Elige **Crear una cuenta**, ingresa tu cédula y crea una contraseña de al menos 12 caracteres. Para vincularte como titular, abre **Recuperar mi avance anterior** antes de enviar el formulario y escribe el valor de `RIWI_PASSWORD`.
+2. En el directorio del proyecto, ejecuta `Copy-Item .env.example .env`.
+3. Ejecuta `node --env-file=.env server.mjs` y abre [el tablero local](http://127.0.0.1:8765/). Crea una cuenta con tu cédula y una contraseña de al menos 12 caracteres.
 4. Para ejecutar las pruebas, usa `node --test`.
 
 La base predeterminada es `riwi.sqlite`. Si vienes de la Beta, detén el servidor anterior, guarda una copia de seguridad y apunta `RIWI_DB_PATH` al archivo existente. El servidor agrega las tablas necesarias y conserva las casillas, fichas importadas, avisos y conversaciones. El historial reconstruido de la Beta indica cuándo no hay fecha de finalización registrada. Para copiar una base en uso usa la API de respaldo de SQLite. Para copiar archivos directamente detén los procesos que la usan y, si existe, conserva también el archivo WAL junto al principal.
@@ -16,10 +16,10 @@ La base predeterminada es `riwi.sqlite`. Si vienes de la Beta, detén el servido
 Usa [Vercel Hobby](https://vercel.com/docs/plans/hobby) para el tablero y [Turso Free](https://turso.tech/pricing) para SQLite en la nube. Cada persona crea su cuenta con cédula y contraseña. Las casillas, el historial, los avisos y las guías guardadas son individuales. Las fichas y el calendario son comunes y solo los edita el titular. La base almacena la cédula como identificador privado y un hash `scrypt` con sal para verificar la contraseña. El tablero no verifica la titularidad de la cédula ante una entidad externa.
 
 1. Crea una base en Turso Free. Si ya tienes casillas o historial local, detén el servidor, haz una copia de SQLite que incluya los cambios del WAL y [crea la base de Turso importando esa copia](https://docs.turso.tech/cli/db/create), por ejemplo con `turso db create tablero-riwi --from-file ./backups/riwi.sqlite`. Si empiezas de cero, crea una base vacía. Obtén su URL `libsql://…` y un token para esa base.
-2. Crea o vincula un proyecto personal en Vercel con `npx vercel link`. Usa el preset **Other**. En **Settings → Environment Variables**, configura en **Production** `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` y `CRON_SECRET` (una cadena aleatoria de al menos 16 caracteres). Mantén `RIWI_PASSWORD` para vincular el avance de la versión anterior en **Crear una cuenta → Recuperar mi avance anterior**. Una vez vinculado el titular, puedes quitar esa variable al volver a desplegar. Vercel proporciona el dominio HTTPS que usa el servidor al verificar las escrituras.
+2. Crea o vincula un proyecto personal en Vercel con `npx vercel link`. Usa el preset **Other**. En **Settings → Environment Variables**, configura en **Production** `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` y `CRON_SECRET` (una cadena aleatoria de al menos 16 caracteres).
 3. Desde la carpeta del proyecto ejecuta `npx vercel --prod`. Abre la URL de producción en el PC y el celular. Comprueba que pide autenticación y que una casilla actualizada en un dispositivo aparece al recargar el otro. En el panel de Vercel, verifica que el cron de `/api/cron` responda correctamente.
 
-Vercel instala el cliente de Turso al construir. La pantalla de acceso está disponible públicamente y las rutas de datos y el tablero requieren una sesión vigente. Usa una base independiente si habilitas vistas previas. En Vercel se ofrece la guía básica guardada en Turso. **Iniciar sesión en ChatGPT** abre la página oficial para usar la cuenta personal y **Copiar contexto** copia los datos del ejercicio seleccionado al portapapeles para pegarlos allí. El chat de ChatGPT queda en su propio historial. Integrar la conversación y el uso del plan personal en un sitio alojado requiere acceso al programa de [Sign in with ChatGPT](https://developers.openai.com/siwc/quickstart).
+Vercel instala el cliente de Turso al construir. La pantalla de acceso está disponible públicamente y las rutas de datos y el tablero requieren una sesión vigente. Usa una base independiente si habilitas vistas previas. Las cuentas titulares existentes conservan su acceso. En una instalación nueva, después del registro del titular, busca el ID interno de su cuenta en la tabla `accounts` y configúralo en `RIWI_OWNER_ACCOUNT_ID`.
 
 En Cron Jobs del plan Hobby, el aviso diario se programa a las **5:00 a. m. de Colombia** (10:00 UTC) y Vercel puede ejecutarlo hasta las **5:59 a. m.** Si abres el tablero después de las 5:00 y falta el aviso, lo genera al cargar. Turso evita duplicados aunque coincidan dos ejecuciones. Mantén ambos servicios en sus planes gratuitos. Al alcanzar sus límites, el servicio afectado puede rechazar peticiones hasta que vuelva a haber cuota. El tablero muestra un error si falla la base y conserva los datos previamente guardados. [Horario y límites del cron](https://vercel.com/docs/schedules/cron-jobs/usage-and-pricing) · [Precios de Turso](https://turso.tech/pricing)
 
@@ -57,9 +57,22 @@ El destino es exclusivamente el buzón de la aplicación. La búsqueda de automa
 
 ## Guía y chat
 
-**Pedir guía** abre la conversación del paso con el contexto de su ficha. La guía básica se genera en el servidor y queda disponible desde ambos dispositivos. El Día 1 incluye ejemplos preparados para los siete pasos del MiniReto 3 y para el primer paso de los otros tres minirretos. Los demás pasos ofrecen una guía básica basada en la ficha. El ejemplo adaptado a cualquier paso y las preguntas libres están disponibles al configurar un modelo compatible en [Ollama local](https://github.com/ollama/ollama/blob/main/docs/faq.mdx).
+**Pedir guía** abre el hilo del paso. La primera guía usa una plantilla y, donde están disponibles, ejemplos escritos para el Día 1. **Ver o generar guía de IA** reutiliza la guía que ya está guardada para esa cuenta y ese paso, incluso si se desconectó el modelo. La primera generación, **Pedir más explicación** y las preguntas libres consultan el modelo conectado. Las guías y conversaciones se guardan por cuenta en el tablero.
 
-En Ollama habilita `OLLAMA_NO_CLOUD=1` en el proceso que sirve la API, reinícialo y descarga un modelo local compatible con tu equipo. Define en el tablero `RIWI_OLLAMA_MODEL` con el nombre y etiqueta exactos que muestra `ollama list`. El tablero consulta el servicio de loopback de Ollama y comprueba que el modelo esté instalado y sea local. La respuesta recibe el día, el minirreto, el paso y las casillas guardadas. Cada hilo se guarda en SQLite y tiene su propio historial, separado del historial de ChatGPT.
+En **Chat Riwi → Conectar un modelo**, escoge el proveedor y escribe el identificador exacto del modelo:
+
+| Conexión | Qué necesita |
+|---|---|
+| Gemini | Clave personal de [Google AI Studio](https://aistudio.google.com/apikey). |
+| Google Cloud | Inicio de sesión con Google e ID de un proyecto con la API de Vertex AI habilitada y permisos para generar contenido. |
+| OpenAI | Una clave de la [plataforma API](https://platform.openai.com/api-keys). El [inicio de sesión con el plan de ChatGPT](https://developers.openai.com/siwc/quickstart) requiere habilitación de OpenAI para una app alojada. |
+| Claude | Clave de [Claude Console](https://platform.claude.com/settings/keys) con acceso a un workspace. |
+| Ollama | Modelo descargado y en ejecución local. |
+| Agente local | API compatible con `/v1/chat/completions` en `127.0.0.1`, con el puerto y modelo que usa el agente. |
+
+Para activar Google, crea un cliente OAuth de tipo **Aplicación web** en Google Cloud, configura su pantalla de consentimiento, registra la URL exacta `https://TU-DOMINIO/google-callback` como URI de redirección y configura `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` en el servidor. Si la aplicación OAuth está en modo de pruebas, agrega las cuentas de prueba en Google. El permiso de Google Cloud vincula la cuenta que tiene acceso al proyecto elegido. Las credenciales de cada persona viven en memoria de la pestaña y se usan solo por solicitud en el servidor. Se descartan al desconectar, recargar o cerrar sesión y no se guardan en Turso ni en el almacenamiento del navegador. La aplicación guarda los mensajes, así que pega claves únicamente en el campo de conexión.
+
+Para Ollama, mantén el servicio en loopback, activa `OLLAMA_NO_CLOUD=1`, configura `OLLAMA_ORIGINS` con el origen exacto del tablero y reinicia Ollama. En un agente compatible configura CORS para ese mismo origen. Si el navegador solicita permiso de red local, concédelo al conectar. La conexión llega al servicio instalado en el dispositivo que tiene abierto el navegador. Puedes mantener el modo anterior `RIWI_OLLAMA_MODEL` si ejecutas Node y Ollama directamente en el mismo equipo.
 
 ## Costos y límites
 
@@ -68,7 +81,7 @@ En Ollama habilita `OLLAMA_NO_CLOUD=1` en el proceso que sirve la API, reinícia
 | Equipo propio y Tailscale Personal | El alojamiento utiliza equipo, internet y electricidad existentes. Usa el plan Personal gratuito sin habilitar un plan de pago. Si se alcanza la capacidad gratuita, mantén el acceso dentro de los dispositivos y límites disponibles. [Condiciones del plan](https://tailscale.com/docs/account/manage-plans/free-plans-discounts) |
 | SQLite | Usa el disco del equipo. Si se llena, SQLite puede rechazar la escritura y el tablero indica error. No hay un proveedor de base de datos con facturación por uso. [Códigos de error de SQLite](https://www.sqlite.org/rescode.html) |
 | Avisos | El proceso almacena avisos directamente en SQLite. Si falla una escritura, el proceso reintenta durante el día. No hay API de notificaciones ni cuota de mensajes. |
-| Chat | El servidor no usa una API de pago. Ollama local está apagado por defecto, usa una respuesta simultánea y cancela la espera al superar el tiempo máximo. Si falla, la guía básica sigue disponible y el chat libre devuelve un error. [API local de Ollama](https://github.com/ollama/ollama/blob/main/docs/api/introduction.mdx) |
+| Chat | El tablero funciona con guías sin credenciales. Las conexiones de nube son opcionales, usan la cuota o el saldo personal y pueden generar cargos. Al alcanzar el límite del proveedor, la aplicación muestra el error sin reintentar automáticamente. Ollama local usa los recursos del dispositivo. |
 
 La publicación en Vercel, una prueba desde un teléfono real, los módulos todavía sin fichas, la sincronización automática de contenidos y la activación de un modelo local requieren configuración o acceso adicional.
 

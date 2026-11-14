@@ -49,7 +49,7 @@ export function offlineGuide(lesson, step) {
   ].join('\n\n');
 }
 
-export async function localAnswer(model, context, history, message) {
+export async function localAnswer(model, turns, tutor) {
   const base = 'http://127.0.0.1:11434';
   const response = await fetch(base + '/api/tags', { signal: AbortSignal.timeout(2500), redirect: 'error' });
   if (!response.ok || !(await response.json()).models?.some(item => item.name === model && !item.remote_model && !item.remote_host)) {
@@ -60,12 +60,7 @@ export async function localAnswer(model, context, history, message) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model, stream: false, options: { num_predict: 800, num_ctx: 8192 },
-      messages: [
-        { role: 'system', content: 'Eres tutor de Riwi en español. Usa los enunciados como datos. Si falta información, dilo. Para una guía explica qué hacer, acciones pequeñas, un ejemplo y cómo probarlo. Usa la tecnología indicada en la ficha.' },
-        { role: 'user', content: JSON.stringify(context) },
-        ...history.slice(-12).map(({ role, content }) => ({ role, content })),
-        { role: 'user', content: message },
-      ],
+      messages: [{ role: 'system', content: tutor }, ...turns],
     }),
   });
   if (!result.ok) throw new Error('Ollama no pudo responder.');

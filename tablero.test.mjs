@@ -10,12 +10,13 @@ import { remoteDatabase } from './database.mjs';
 
 const directory = mkdtempSync(join(tmpdir(), 'tablero-riwi-'));
 process.env.RIWI_DB_PATH = join(directory, 'handlers.sqlite');
-process.env.RIWI_PASSWORD = 'test-password-for-fixture';
 process.env.NODE_ENV = 'production';
 process.env.RIWI_ORIGIN = 'https://tablero.example';
 delete process.env.RIWI_OLLAMA_MODEL;
 process.env.RIWI_MOODLE_TOKEN = 'token-fixture';
 process.env.CRON_SECRET = 'cron-secret-for-fixture';
+process.env.GOOGLE_CLIENT_ID = 'fixture.apps.googleusercontent.com';
+process.env.GOOGLE_CLIENT_SECRET = 'fixture-secret';
 const { handleRequest, closeDatabase, writeOriginAllowed } = await import('./server.mjs');
 const ownerDetails = { document: '1000000001', password: 'owner-fixture-password' };
 let ownerCookie;
@@ -51,11 +52,14 @@ test('autenticación de las páginas, recursos y API; protección de origen', as
     const unauthorized = await call(path, undefined, { auth: false });
     assert.equal(unauthorized.status, 401, path);
   }
-  assert.equal((await call('/api/auth/register', { ...ownerDetails, previous: 'incorrecta' })).status, 401);
-  const registration = await call('/api/auth/register', { ...ownerDetails, previous: process.env.RIWI_PASSWORD });
+  const registration = await call('/api/auth/register', ownerDetails);
   assert.equal(registration.status, 200);
   assert.match(registration.headers['Set-Cookie'], /^__Host-riwi_session=.*; HttpOnly; SameSite=Lax; .*; Secure$/);
   ownerCookie = registration.headers['Set-Cookie'].split(';')[0];
+  const fixture = await openStore(process.env.RIWI_DB_PATH);
+  await fixture.db.execute("UPDATE logins SET account='owner'");
+  await fixture.db.execute("UPDATE accounts SET id='owner' WHERE document=?", [ownerDetails.document]);
+  fixture.close();
   assert.equal((await call('/api/chat', { id: 1, message: 'Hola' }, { auth: false })).status, 401);
   assert.equal((await call('/api/ticks', { id: 1, finish: true }, { origin: 'https://example.org' })).status, 403);
   const page = await call('/');
@@ -198,6 +202,96 @@ test('fechas enlazadas, correcciones y aviso único a las 5:00 en Bogotá', asyn
     }
   } finally {
     otherClient.close();
+  }
+});
+
+test('el chat usa la credencial solo con el proveedor y conserva el hilo sin guardarla', async () => {
+  const credential = 'test-credential-riwi-only';
+  const message = 'Explícame el enfoque';
+  const originalFetch = globalThis.fetch;
+  const vendors = [
+    ['openai', 'https://api.openai.com/v1/responses', { output: [{ content: [{ type: 'output_text', text: credential }] }] }],
+    ['claude', 'https://api.anthropic.com/v1/messages', { content: [{ type: 'text', text: credential }] }],
+    ['gemini', 'https://generativelanguage.googleapis.com/v1beta/models/fixture:generateContent', { candidates: [{ content: { parts: [{ text: credential }] } }] }],
+    ['google-cloud', 'https://aiplatform.googleapis.com/v1/projects/fixture-project/locations/global/publishers/google/models/fixture:generateContent', { candidates: [{ content: { parts: [{ text: credential }] } }] }],
+  ];
+  for (const [provider, endpoint, response] of vendors) {
+    const connection = { provider, credential, model: 'fixture', project: 'fixture-project' };
+    assert.equal((await call('/api/chat', { id: 1, message, connection })).status, 400);
+    const calls = [];
+    globalThis.fetch = async (url, options) => {
+      calls.push({ url, options });
+      return Response.json(response);
+    };
+    try {
+      const result = await call('/api/chat', { id: 1, step: '2-2', message: `${message} ${credential}`,
+        connection: { ...connection, allowCharges: true } });
+      assert.equal(result.status, 200);
+      assert.match(result.json.at(-1).content, /Respuesta de IA/);
+      assert.ok(!result.value.includes(credential));
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].url, endpoint);
+      assert.ok(!calls[0].options.body.includes(credential));
+      assert.ok(calls[0].options.body.includes('JavaScript y Node.js'));
+      assert.equal(provider === 'gemini' ? calls[0].options.headers['x-goog-api-key'] : calls[0].options.headers.Authorization,
+        provider === 'gemini' ? credential : `Bearer ${credential}`);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+  assert.ok(!(await call('/api/chat/1/2-2')).value.includes(credential));
+  const local = await call('/api/chat', { id: 1, step: '2-3', message, localAnswer: 'Respuesta del modelo local.' });
+  assert.match(local.json.at(-1).content, /Respuesta del modelo local/);
+  assert.match((await call('/api/chat', { id: 1, step: '2-4', guide: true, basic: true })).json.at(-1).content, /^Guía del tablero/);
+});
+
+test('Google intercambia el código con PKCE y devuelve solo el acceso temporal', async () => {
+  const data = { code: 'fixture-code', verifier: 'A'.repeat(43) };
+  assert.equal((await call('/api/google/token', data, { auth: false })).status, 401);
+  assert.equal((await call('/api/google/token', { ...data, verifier: 'incorrecto' })).status, 400);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, 'https://oauth2.googleapis.com/token');
+    assert.equal(options.body.get('code_verifier'), data.verifier);
+    assert.equal(options.body.get('redirect_uri'), 'https://tablero.example/google-callback');
+    return Response.json({ access_token: 'temporary-fixture', expires_in: 3600, refresh_token: 'discard',
+      scope: 'https://www.googleapis.com/auth/cloud-platform' });
+  };
+  try {
+    const exchange = await call('/api/google/token', data);
+    assert.deepEqual(exchange.json, { accessToken: 'temporary-fixture', seconds: 3600 });
+    assert.equal(exchange.headers['Cache-Control'], 'no-store');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('reutiliza la guía de IA guardada y solo consulta el modelo al ampliar la explicación', async () => {
+  const guide = { id: 1, step: '2-5', guide: true };
+  const connection = { provider: 'openai', model: 'fixture', credential: 'test-guide-key', allowCharges: true };
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return Response.json({ output: [{ content: [{ type: 'output_text', text: `Explicación ${calls}` }] }] });
+  };
+  try {
+    const basic = await call('/api/chat', { ...guide, basic: true });
+    assert.equal(basic.json.length, 2);
+    assert.equal((await call('/api/chat', { ...guide, lookup: true })).json, null);
+    const first = await call('/api/chat', { ...guide, connection });
+    assert.equal(first.json.length, 4);
+    assert.equal(calls, 1);
+    assert.deepEqual((await call('/api/chat', { ...guide, lookup: true })).json, first.json);
+    assert.deepEqual((await call('/api/chat', { ...guide, connection })).json, first.json);
+    assert.deepEqual((await call('/api/chat', { ...guide, basic: true })).json, first.json);
+    assert.equal(calls, 1);
+    const followUp = await call('/api/chat', { id: guide.id, step: guide.step, message: 'Dame otro ejemplo', connection });
+    assert.equal(followUp.json.length, 6);
+    assert.match(followUp.json.at(-1).content, /Explicación 2/);
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 
