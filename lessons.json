@@ -1,0 +1,151 @@
+[
+  {
+    "week": 1,
+    "day": 1,
+    "title": "Resolución de problemas con arreglos",
+    "url": "https://moodle.riwi.io/mod/page/view.php?id=7614",
+    "summary": "Café Origen: analiza los datos de ventas con JavaScript y Node.js. Calcula indicadores, verifica equivalencias entre ciclos y métodos, agrupa y ordena.",
+    "quests": [
+      [
+        "Primer tueste: el repositorio y los datos",
+        "Café Origen necesita que entiendas las 12 ventas y detectes problemas en los datos antes de calcular indicadores.",
+        [
+          "Inicia el repositorio cafe-origen-analitica y vincúlalo a GitHub.",
+          "Crea src/datos.js, src/analitica.js, bitacora.md y README.md.",
+          "Carga las 12 ventas en datos.js y expórtalas con module.exports.",
+          "Crea src/explorar.js y muestra el conteo, primero, último, producto de la posición 4 y tabla completa.",
+          "Escribe el diccionario de datos en la bitácora.",
+          "Registra tres problemas de calidad y tu decisión para cada uno.",
+          "Haz commit y push."
+        ]
+      ],
+      [
+        "Los números del día: recorrer, filtrar y acumular",
+        "La gerente necesita sus primeros indicadores. Los ciclos servirán de referencia para verificar los métodos de arreglo.",
+        [
+          "Escribe el pseudocódigo de los indicadores.",
+          "Implementa valorVenta(venta) como cantidad × precio.",
+          "Implementa totalVendido, unidadesVendidas y ventaMayor con for...of.",
+          "Calcula ticketPromedio usando ventas válidas.",
+          "Implementa ventasPorCiudad ignorando mayúsculas y espacios sobrantes.",
+          "Prueba con todas las ventas, una venta y ninguna. Documenta el resultado esperado para la entrada vacía.",
+          "Verifica dos resultados con tablas de traza. Haz commit y push."
+        ]
+      ],
+      [
+        "Del ciclo al método: rankings y agrupaciones",
+        "La gerente pide totales por ciudad, unidades por producto y los tres productos con mayores ingresos. Los métodos deben coincidir con los ciclos.",
+        [
+          "En analitica.js, crea totalVendidoM, unidadesVendidasM y ventasPorCiudadM con métodos de arreglo.",
+          "Crea src/verificar.js para comparar cada ciclo con su versión de métodos y mostrar OK o DIFERENTE.",
+          "Implementa totalPorCiudad y normaliza los nombres. Comprueba que salgan cuatro ciudades.",
+          "Implementa unidadesPorProducto y suma las unidades de cada producto.",
+          "Implementa topProductosPorValor(ventas, k) de mayor a menor, preservando el orden original de ventas.",
+          "Anota en la bitácora qué recorres, filtras, transformas, acumulas y agrupas en cada función.",
+          "Ejecuta verificar.js, confirma que todo salga OK y haz commit y push."
+        ]
+      ],
+      [
+        "Analítica v0.1: el primer reporte",
+        "La gerente necesita ejecutar el resumen desde la consola. Comprueba la ciudad duplicada y el ticket NaN en los días sin ventas.",
+        [
+          "Crea src/reporte.js con resumen, ventas por ciudad, unidades por producto y top 3 por valor.",
+          "Formatea los montos con toLocaleString('es-CO').",
+          "Implementa ventasDelDia y muestra un día con ventas y otro sin ventas.",
+          "Documenta los dos errores y cómo comprobaste o corregiste cada uno.",
+          "Explica en README.md qué hace el proyecto y cómo ejecutarlo.",
+          "Comprueba que el reporte no produzca NaN, undefined ni grupos duplicados.",
+          "Haz commit y push de la v0.1."
+        ]
+      ]
+    ]
+  },
+  {
+    "week": 1,
+    "day": 2,
+    "title": "Análisis de algoritmos – Big O",
+    "url": "https://moodle.riwi.io/mod/page/view.php?id=7614",
+    "summary": "Café Origen · Análisis de algoritmos – Big O. Carga las instrucciones de «Tus MiniRetos de hoy» desde la ficha de Moodle.",
+    "quests": []
+  },
+  {
+    "week": 1,
+    "day": 3,
+    "title": "Tablas de búsqueda, conteo y técnicas de recorrido",
+    "url": "https://moodle.riwi.io/mod/page/view.php?id=7614",
+    "summary": "Café Origen · Tablas de búsqueda, conteo y técnicas de recorrido. Carga las instrucciones de «Tus MiniRetos de hoy» desde la ficha de Moodle.",
+    "quests": []
+  },
+  {
+    "week": 2,
+    "day": 1,
+    "title": "Listas enlazadas",
+    "url": "https://moodle.riwi.io/mod/page/view.php?id=7614",
+    "summary": "Patitas · Listas enlazadas. Carga las instrucciones de «Tus MiniRetos de hoy» desde la ficha de Moodle.",
+    "quests": []
+  },
+  {
+    "week": 2,
+    "day": 2,
+    "title": "Pilas y colas",
+    "url": "https://moodle.riwi.io/mod/page/view.php?id=7614",
+    "summary": "Patitas · Pilas y colas. Carga las instrucciones de «Tus MiniRetos de hoy» desde la ficha de Moodle.",
+    "quests": []
+  },
+  {
+    "week": 2,
+    "day": 3,
+    "title": "Recursión y pensamiento recursivo",
+    "url": "https://moodle.riwi.io/mod/page/view.php?id=7614",
+    "summary": "Patitas · Recursión y pensamiento recursivo. Carga las instrucciones de «Tus MiniRetos de hoy» desde la ficha de Moodle.",
+    "quests": []
+  },
+  {
+    "week": 3,
+    "day": 1,
+    "title": "Búsqueda lineal y binaria",
+    "url": "https://moodle.riwi.io/mod/page/view.php?id=7614",
+    "summary": "Libro Abierto · Búsqueda lineal y binaria. Carga las instrucciones de «Tus MiniRetos de hoy» desde la ficha de Moodle.",
+    "quests": []
+  },
+  {
+    "week": 3,
+    "day": 2,
+    "title": "Ordenamiento básico",
+    "url": "https://moodle.riwi.io/mod/page/view.php?id=7614",
+    "summary": "Libro Abierto · Ordenamiento básico. Carga las instrucciones de «Tus MiniRetos de hoy» desde la ficha de Moodle.",
+    "quests": []
+  },
+  {
+    "week": 3,
+    "day": 3,
+    "title": "Ordenamiento avanzado",
+    "url": "https://moodle.riwi.io/mod/page/view.php?id=7614",
+    "summary": "Libro Abierto · Ordenamiento avanzado. Carga las instrucciones de «Tus MiniRetos de hoy» desde la ficha de Moodle.",
+    "quests": []
+  },
+  {
+    "week": 4,
+    "day": 1,
+    "title": "Árboles binarios de búsqueda",
+    "url": "https://moodle.riwi.io/mod/page/view.php?id=7614",
+    "summary": "Ruta Paisa · Árboles binarios de búsqueda. Carga las instrucciones de «Tus MiniRetos de hoy» desde la ficha de Moodle.",
+    "quests": []
+  },
+  {
+    "week": 4,
+    "day": 2,
+    "title": "Grafos, DFS y BFS",
+    "url": "https://moodle.riwi.io/mod/page/view.php?id=7614",
+    "summary": "Ruta Paisa · Grafos, DFS y BFS. Carga las instrucciones de «Tus MiniRetos de hoy» desde la ficha de Moodle.",
+    "quests": []
+  },
+  {
+    "week": 4,
+    "day": 3,
+    "title": "Reto integrador y entrevista técnica",
+    "url": "https://moodle.riwi.io/mod/page/view.php?id=7614",
+    "summary": "Ruta Paisa · Reto integrador y entrevista técnica. Carga las instrucciones de «Tus MiniRetos de hoy» desde la ficha de Moodle.",
+    "quests": []
+  }
+]
