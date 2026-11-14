@@ -35,7 +35,11 @@ async function api(path, data) {
   const response = await fetch(path, data === undefined ? {} : {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
   });
-  if (response.status === 401) throw new Error('Vuelve a iniciar sesión en el tablero.');
+  if (response.status === 401) {
+    location.replace('/login');
+    throw new Error('Vuelve a iniciar sesión en el tablero.');
+  }
+  if (!response.headers.get('Content-Type')?.includes('application/json')) throw new Error('El servidor no pudo responder. Intenta de nuevo.');
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.error);
   return payload;
@@ -43,6 +47,16 @@ async function api(path, data) {
 
 let state, selected, focus, week, pending = false, chatPending = false, chatLoad = 0;
 let activeTab = 'check';
+let mutationQueue = Promise.resolve();
+$('logout').onclick = async () => {
+  try {
+    await mutationQueue;
+    await api('/api/auth/logout', {});
+    location.replace('/login');
+  } catch (error) {
+    status(error.message, true);
+  }
+};
 const opened = new Map();
 const moduleName = id => state.modules.find(item => item.id === id)?.name || id;
 const lesson = id => state.lessons.find(day => day.id === id);
@@ -100,8 +114,12 @@ function select(id, step) {
   show('check');
 }
 const openDay = (id, step) => button('Abrir checklist', () => select(id, step), 'secondary');
-async function update(path, payload, onSuccess, message = 'Guardado.') {
-  if (pending) return;
+function update(path, payload, onSuccess, message = 'Guardado.') {
+  const operation = mutationQueue.then(() => saveUpdate(path, payload, onSuccess, message));
+  mutationQueue = operation.catch(() => {});
+  return operation;
+}
+async function saveUpdate(path, payload, onSuccess, message) {
   pending = true;
   status('Guardando…');
   try {
@@ -123,20 +141,14 @@ function checkbox(title, checked, partial, action) {
   input.type = 'checkbox';
   input.checked = checked;
   input.indeterminate = partial;
-  input.onchange = () => {
-    if (pending) {
-      input.checked = checked;
-      input.indeterminate = partial;
-      return;
-    }
-    action(input.checked);
-  };
+  input.onchange = () => action(input.checked);
   return box('label', 'check', input, el('span', title));
 }
 function setTicks(id, ids, value, finish = false) {
-  update('/api/ticks', { id, finish: finish && value, changes: Object.fromEntries(ids.map(key => [key, value])) },
+  const payload = { id, finish: finish && value, changes: Object.fromEntries(ids.map(key => [key, value])) };
+  update('/api/ticks', payload,
     next => {
-      if (finish && value && next.next) selected = next.next;
+      if (selected === id && finish && value && next.next) selected = next.next;
     }, next => finish && value && next.next ? 'Día guardado. Estás viendo el siguiente día pendiente.' : 'Avance guardado.');
 }
 function field(form, label, name, value, options = {}) {
@@ -168,9 +180,9 @@ function renderSources() {
     el('p', 'Las fichas y las vinculaciones de fechas que falten quedan pendientes de verificar. Consulta la fuente oficial y carga el resultado en el tablero.'),
     box('div', 'row', link('Reconectar Moodle', state.links.login, 'button secondary'),
       link('Mis cursos · Inglés y HSE ↗', state.links.courses, 'button secondary'),
-      button('Indicar sesión vencida', () => update('/api/moodle', { action: 'expired' }), 'secondary'),
-      button('Registrar consulta manual', () => update('/api/moodle', { action: 'manual' }), 'secondary')));
-  if (state.moodleProbe) notice.append(button('Comprobar conexión', () => update('/api/moodle', { action: 'probe' })));
+      ...(state.canEdit ? [button('Indicar sesión vencida', () => update('/api/moodle', { action: 'expired' }), 'secondary'),
+        button('Registrar consulta manual', () => update('/api/moodle', { action: 'manual' }), 'secondary')] : [])));
+  if (state.canEdit && state.moodleProbe) notice.append(button('Comprobar conexión', () => update('/api/moodle', { action: 'probe' })));
   if (src.attempted) notice.append(el('small', 'Última comprobación: ' + dateLabel(src.attempted, true)));
   notice.className = 'source';
   if (src.status === 'expired') { notice.dataset.expired = ''; notice.open = true; }
@@ -309,7 +321,7 @@ function renderCheck() {
     });
     $('check').append(card);
   });
-  $('check').append(lessonForm(d), details('Añadir otro día del curso', lessonForm()));
+  if (state.canEdit) $('check').append(lessonForm(d), details('Añadir otro día del curso', lessonForm()));
 }
 function sessionContent(s, compact = false) {
   const day = lesson(s.lesson);
@@ -324,7 +336,10 @@ function sessionContent(s, compact = false) {
     node.append(el('small', 'Día del curso y minirretos sin vincular.'));
   }
   node.append(box('small', '', link('Fuente oficial ↗', s.source)));
-  if (!compact) node.append(el('small', 'Consultado el ' + dateLabel(s.consulted)), sessionForm(s, s.date));
+  if (!compact) {
+    node.append(el('small', 'Consultado el ' + dateLabel(s.consulted)));
+    if (state.canEdit) node.append(sessionForm(s, s.date));
+  }
   return node;
 }
 function sessionForm(session, date) {
@@ -360,7 +375,7 @@ function renderCalendar() {
     const sessions = state.sessions.filter(row => row.date === date);
     output.append(box('article', 'card', el('h3', dateLabel(date, true)),
       ...(sessions.length ? sessions.map(s => sessionContent(s)) : [el('p', 'Sin programación verificada')]),
-      sessionForm(null, date)));
+      ...(state.canEdit ? [sessionForm(null, date)] : [])));
   }
   let official = $('calendar').querySelector('#official-agenda');
   if (!official) {
@@ -452,7 +467,19 @@ async function openChat(selection, guide) {
     box('div', 'row', openDay(day.id, focus.step),
       button('Chat general del día', () => openChat({ id: day.id, step: '' }, false), 'secondary'),
       ...(selected !== day.id ? [button('Chat del checklist seleccionado', () => openChat({ id: selected, step: '' }, false), 'secondary')] : [])),
-    el('small', state.chatReady ? 'Asistente local configurado.' : 'Las preguntas libres se habilitan con un modelo local. La guía básica está disponible.')));
+    el('small', 'Para conversar con ChatGPT, abre su página e inicia sesión con tu propia cuenta. La guía del tablero se guarda aquí.'),
+    box('div', 'row', link('Iniciar sesión en ChatGPT', 'https://chatgpt.com/auth/login', 'button'),
+      button('Copiar contexto', async () => {
+        const context = [state.track, fullName(day), day.title, day.technology, quest ? cursorLabel(selection, day) : '',
+          quest ? quest[1] : day.summary, quest ? quest[2][j] : '', 'Avance: ' + completed(day).count + ' pasos completados.'];
+        try {
+          await navigator.clipboard.writeText(context.filter(Boolean).join('\n'));
+          status('Contexto copiado. Pégalo en tu conversación de ChatGPT.');
+        } catch {
+          status('No se pudo copiar el contexto.', true);
+        }
+      }, 'secondary'))));
+  $('ask').hidden = !state.chatReady;
   $('messages').replaceChildren(el('p', 'Cargando conversación…'));
   $('send').disabled = !state.chatReady || chatPending;
   try {

@@ -16,14 +16,17 @@ process.env.RIWI_ORIGIN = 'https://tablero.example';
 delete process.env.RIWI_OLLAMA_MODEL;
 process.env.RIWI_MOODLE_TOKEN = 'token-fixture';
 process.env.CRON_SECRET = 'cron-secret-for-fixture';
-const { handleRequest, closeDatabase } = await import('./server.mjs');
+const { handleRequest, closeDatabase, writeOriginAllowed } = await import('./server.mjs');
+const ownerDetails = { document: '1000000001', password: 'owner-fixture-password' };
+let ownerCookie;
 
-async function call(url, data, { auth = true, origin = process.env.RIWI_ORIGIN, bearer, handler = handleRequest } = {}) {
+async function call(url, data, { auth = true, cookie = auth ? ownerCookie : undefined,
+  origin = process.env.RIWI_ORIGIN, bearer, handler = handleRequest } = {}) {
   const request = Readable.from(data === undefined ? [] : [Buffer.from(JSON.stringify(data))]);
   request.method = data === undefined ? 'GET' : 'POST';
   request.url = url;
   request.headers = { origin, 'content-type': 'application/json' };
-  if (auth) request.headers.authorization = 'Basic ' + Buffer.from('riwi:' + process.env.RIWI_PASSWORD).toString('base64');
+  if (cookie) request.headers.cookie = cookie;
   if (bearer) request.headers.authorization = 'Bearer ' + bearer;
   const response = {
     headers: {},
@@ -33,16 +36,26 @@ async function call(url, data, { auth = true, origin = process.env.RIWI_ORIGIN, 
     get headersSent() { return Boolean(this.status); },
   };
   await handler(request, response);
-  if (response.headers['Content-Type'].startsWith('application/json')) response.json = JSON.parse(response.value);
+  if (response.headers['Content-Type']?.startsWith('application/json')) response.json = JSON.parse(response.value);
   return response;
 }
 
 test('autenticación de las páginas, recursos y API; protección de origen', async () => {
-  for (const path of ['/', '/ui.js', '/ui.css', '/health', '/api/state', '/api/chat/1', '/api/chat/1/2-0']) {
+  const headers = { host: 'mi-tablero.vercel.app', origin: 'https://mi-tablero.vercel.app', 'content-type': 'application/json' };
+  assert.equal(writeOriginAllowed(headers, true), true);
+  assert.equal(writeOriginAllowed({ ...headers, origin: 'https://otro.vercel.app' }, true), false);
+  assert.equal(writeOriginAllowed({ ...headers, origin: 'http://mi-tablero.vercel.app' }, true), false);
+  assert.equal((await call('/', undefined, { auth: false })).headers.Location, '/login');
+  assert.match((await call('/login', undefined, { auth: false })).value, /Cédula/);
+  for (const path of ['/ui.js', '/health', '/api/state', '/api/chat/1', '/api/chat/1/2-0']) {
     const unauthorized = await call(path, undefined, { auth: false });
     assert.equal(unauthorized.status, 401, path);
-    assert.match(unauthorized.headers['WWW-Authenticate'], /^Basic /);
   }
+  assert.equal((await call('/api/auth/register', { ...ownerDetails, previous: 'incorrecta' })).status, 401);
+  const registration = await call('/api/auth/register', { ...ownerDetails, previous: process.env.RIWI_PASSWORD });
+  assert.equal(registration.status, 200);
+  assert.match(registration.headers['Set-Cookie'], /^__Host-riwi_session=.*; HttpOnly; SameSite=Lax; .*; Secure$/);
+  ownerCookie = registration.headers['Set-Cookie'].split(';')[0];
   assert.equal((await call('/api/chat', { id: 1, message: 'Hola' }, { auth: false })).status, 401);
   assert.equal((await call('/api/ticks', { id: 1, finish: true }, { origin: 'https://example.org' })).status, 403);
   const page = await call('/');
@@ -51,13 +64,38 @@ test('autenticación de las páginas, recursos y API; protección de origen', as
   assert.equal(page.headers['Strict-Transport-Security'], 'max-age=31536000');
   assert.match(page.headers['Content-Security-Policy'], /frame-src https:\/\/teamlead\.up\.railway\.app;/);
   assert.equal((await call('/api/cron')).status, 401);
-  assert.equal((await call('/api/state', undefined, { bearer: process.env.CRON_SECRET })).status, 401);
+  assert.equal((await call('/api/state', undefined, { auth: false, bearer: process.env.CRON_SECRET })).status, 401);
   const tablero = (await import('./api/tablero.js')).default;
   assert.equal((await call('/api/tablero?path=/', undefined, { handler: tablero })).status, 200);
   assert.equal((await call('/api/tablero?path=/api/state', undefined, { handler: tablero, auth: false })).status, 401);
   assert.equal((await call('/api/tablero?path=/health', undefined, { handler: tablero })).status, 200);
   const cron = (await import('./api/cron.js')).default;
   assert.equal((await call('/api/cron', undefined, { handler: cron, bearer: process.env.CRON_SECRET })).status, 200);
+});
+
+test('cada cédula conserva sus propios cambios, sesión e historial de guía', async () => {
+  const details = { document: '1000000002', password: 'other-fixture-password' };
+  const registration = await call('/api/auth/register', details, { auth: false });
+  assert.equal(registration.status, 200);
+  const cookie = registration.headers['Set-Cookie'].split(';')[0];
+  assert.equal((await call('/api/auth/register', details, { auth: false })).status, 409);
+  assert.equal((await call('/api/auth/login', { ...details, password: 'incorrecta' }, { auth: false })).status, 401);
+  const permissions = (await call('/api/state', undefined, { cookie })).json;
+  assert.equal(permissions.canEdit, false);
+  assert.equal(permissions.checked.length, 0);
+  assert.equal((await call('/api/session', {}, { cookie })).status, 403);
+  assert.equal((await call('/api/ticks', { id: 1, changes: { '2-0': true } }, { cookie })).json.checked.length, 1);
+  assert.equal((await call('/api/chat', { id: 1, step: '2-0', guide: true }, { cookie })).status, 200);
+  assert.equal((await call('/api/state')).json.checked.length, 0);
+  assert.deepEqual((await call('/api/chat/1/2-0')).json, []);
+  const login = await call('/api/auth/login', details, { auth: false });
+  assert.equal(login.status, 200);
+  const otherDevice = login.headers['Set-Cookie'].split(';')[0];
+  assert.equal((await call('/api/state', undefined, { cookie: otherDevice })).json.checked.length, 1);
+  assert.equal((await call('/api/chat/1/2-0', undefined, { cookie: otherDevice })).json.length, 2);
+  assert.equal((await call('/api/auth/logout', {}, { cookie })).status, 200);
+  assert.equal((await call('/api/state', undefined, { cookie })).status, 401);
+  assert.equal((await call('/api/state', undefined, { cookie: otherDevice })).status, 200);
 });
 
 test('avance inicial, minirreto, completar y reabrir el día, guía e historial persistente', async () => {

@@ -29,6 +29,27 @@ const schema = `
     content TEXT NOT NULL, created TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS session_modules (session INTEGER PRIMARY KEY, module TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS accounts (
+    id TEXT PRIMARY KEY, document TEXT NOT NULL UNIQUE, salt TEXT NOT NULL, hash TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS logins (token TEXT PRIMARY KEY, account TEXT NOT NULL, expires INTEGER NOT NULL);
+  CREATE INDEX IF NOT EXISTS logins_expiry ON logins(expires);
+  CREATE TABLE IF NOT EXISTS auth_limits (bucket TEXT PRIMARY KEY, expires INTEGER NOT NULL, attempts INTEGER NOT NULL);
+  CREATE INDEX IF NOT EXISTS auth_limits_expiry ON auth_limits(expires);
+  CREATE TABLE IF NOT EXISTS account_ticks (
+    account TEXT NOT NULL, lesson INTEGER NOT NULL, step TEXT NOT NULL, PRIMARY KEY(account,lesson,step)
+  );
+  CREATE TABLE IF NOT EXISTS account_completions (
+    account TEXT NOT NULL, lesson INTEGER NOT NULL, completed TEXT, PRIMARY KEY(account,lesson)
+  );
+  CREATE TABLE IF NOT EXISTS account_messages (
+    id INTEGER PRIMARY KEY, account TEXT NOT NULL, lesson INTEGER NOT NULL, step TEXT NOT NULL,
+    role TEXT NOT NULL, content TEXT NOT NULL, created TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS messages_thread ON account_messages(account,lesson,step,id);
+  CREATE TABLE IF NOT EXISTS account_daily (
+    account TEXT NOT NULL, date TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(account,date)
+  );
 `;
 const seed = JSON.parse(readFileSync(new URL('./lessons.json', import.meta.url), 'utf8'));
 const moduleOrder = new Map(MODULES.map(({ id }, i) => [id, i]));
@@ -43,26 +64,16 @@ export async function openStore(path, db = localDatabase(path)) {
   const all = async (sql, args) => (await execute(sql, args)).rows;
   const get = async (sql, args) => (await all(sql, args))[0];
   const saveSetting = (key, value) => execute('INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', [key, String(value)]);
-  const readSettings = async () => Object.fromEntries((await all('SELECT key,value FROM settings')).map(row => [row.key, row.value]));
+  const readSettings = async () => Object.fromEntries((await all("SELECT key,value FROM settings WHERE instr(key, ':')=0")).map(row => [row.key, row.value]));
   const lessons = async () => (await all('SELECT id,data FROM lessons')).map(fromRow)
     .sort((a, b) => (moduleOrder.get(a.module) ?? 99) - (moduleOrder.get(b.module) ?? 99) || a.week - b.week || a.day - b.day);
   const find = async id => {
     const row = await get('SELECT id,data FROM lessons WHERE id=?', [id]);
     return row && fromRow(row);
   };
-  const readTicks = () => all('SELECT lesson,step FROM ticks');
-  const ticks = async id => new Set((await all('SELECT step FROM ticks WHERE lesson=?', [id])).map(row => row.step));
   const update = lesson => {
     const { id, ...data } = lesson;
     return execute('UPDATE lessons SET data=? WHERE id=?', [JSON.stringify(data), id]);
-  };
-  const writeMarks = async (lesson, list, checked) => {
-    if (!list.length) return;
-    if (checked) {
-      await execute('INSERT OR IGNORE INTO ticks VALUES ' + list.map(() => '(?,?)').join(','), list.flatMap(step => [lesson, step]));
-    } else {
-      await execute('DELETE FROM ticks WHERE lesson=? AND step IN (' + list.map(() => '?').join(',') + ')', [lesson, ...list]);
-    }
   };
   function indexTicks(checked) {
     const marks = new Map();
@@ -89,7 +100,7 @@ export async function openStore(path, db = localDatabase(path)) {
     const baseline = seed.flatMap((lesson, i) => [i + 1, JSON.stringify(seedLesson(lesson, i))]);
     await execute('INSERT OR IGNORE INTO lessons VALUES ' + seed.map(() => '(?,?)').join(','), baseline);
     const rows = await lessons();
-    const checked = await readTicks();
+    const checked = await all('SELECT lesson,step FROM ticks');
     const marks = indexTicks(checked);
     for (const lesson of rows) {
       if (!lesson.module) {
@@ -115,44 +126,119 @@ export async function openStore(path, db = localDatabase(path)) {
     await saveSetting('schema-v2', 1);
   });
 
-  function applyTicks(id, changes, finish) {
-    return transaction(async () => {
-      const rows = await lessons();
-      const day = rows.find(row => row.id === id);
-      if (!day) return { invalid: true };
-      const steps = keys(day);
-      if (finish && steps.length) changes = Object.fromEntries(steps.map(step => [step, true]));
-      if (!changes || typeof changes !== 'object' || Array.isArray(changes) || !Object.keys(changes).length
-        || Object.entries(changes).some(([key, value]) => !steps.includes(key) || typeof value !== 'boolean')) return { invalid: true };
-      const marks = indexTicks(await readTicks());
+  if (!(await get("SELECT value FROM settings WHERE key='schema-v3'"))) await transaction(async () => {
+    if (await get("SELECT value FROM settings WHERE key='schema-v3'")) return;
+    await execute("INSERT INTO account_ticks SELECT 'owner',lesson,step FROM ticks");
+    await execute("INSERT INTO account_completions SELECT 'owner',lesson,completed FROM completions");
+    await execute("INSERT INTO account_messages SELECT id,'owner',lesson,step,role,content,created FROM messages");
+    await execute("INSERT INTO account_daily SELECT 'owner',date,data FROM daily");
+    await saveSetting('schema-v3', 1);
+  });
+
+  function forAccount(account) {
+    const owner = account === 'owner';
+    const readTicks = () => all('SELECT lesson,step FROM account_ticks WHERE account=?', [account]);
+    const ticks = async id => new Set((await all('SELECT step FROM account_ticks WHERE account=? AND lesson=?', [account, id])).map(row => row.step));
+    const setPersonal = (key, value) => saveSetting(owner ? key : `${account}:${key}`, value);
+    async function personalSettings() {
       const settings = await readSettings();
-      const active = resume(rows, marks, settings);
-      const checked = marks.get(id) || new Set();
-      marks.set(id, checked);
-      const wasComplete = done(day, checked);
-      const add = [];
-      const drop = [];
-      for (const [step, value] of Object.entries(changes)) {
-        if (value) { add.push(step); checked.add(step); }
-        else { drop.push(step); checked.delete(step); }
+      if (owner) return settings;
+      const personal = await all('SELECT key,value FROM settings WHERE key IN (?,?,?)',
+        ['active', 'step', 'chat-focus'].map(key => `${account}:${key}`));
+      return { ...settings, active: '1', step: '2-0', 'chat-focus': undefined,
+        ...Object.fromEntries(personal.map(row => [row.key.split(':')[1], row.value])) };
+    }
+    async function writeMarks(lesson, list, checked) {
+      if (!list.length) return;
+      if (checked) {
+        for (let start = 0; start < list.length; start += 300) {
+          const steps = list.slice(start, start + 300);
+          await execute('INSERT OR IGNORE INTO account_ticks VALUES ' + steps.map(() => '(?,?,?)').join(','),
+            steps.flatMap(step => [account, lesson, step]));
+        }
+      } else {
+        await execute('DELETE FROM account_ticks WHERE account=? AND lesson=? AND step IN (' + list.map(() => '?').join(',') + ')',
+          [account, lesson, ...list]);
       }
-      await writeMarks(id, add, true);
-      await writeMarks(id, drop, false);
-      const isComplete = done(day, checked);
-      let next = null;
-      if (isComplete && !wasComplete) await execute('INSERT OR IGNORE INTO completions VALUES (?,?)', [id, new Date().toISOString()]);
-      if (isComplete && (finish || active?.id === id)) {
-        const index = rows.indexOf(day);
-        next = [...rows.slice(index + 1), ...rows.slice(0, index)].find(row => !done(row, marks.get(row.id)))?.id ?? null;
-        await saveSetting('active', next ?? '');
-        await saveSetting('step', '');
-      } else if (active?.id === id || !active) {
-        settings.active = id;
-        await saveSetting('active', id);
-        await saveSetting('step', resume(rows, marks, settings)?.step ?? '');
-      }
-      return { next };
-    });
+    }
+
+    function applyTicks(id, changes, finish) {
+      return transaction(async () => {
+        const rows = await lessons();
+        const day = rows.find(row => row.id === id);
+        if (!day) return { invalid: true };
+        const steps = keys(day);
+        if (finish && steps.length) changes = Object.fromEntries(steps.map(step => [step, true]));
+        if (!changes || typeof changes !== 'object' || Array.isArray(changes) || !Object.keys(changes).length
+          || Object.entries(changes).some(([key, value]) => !steps.includes(key) || typeof value !== 'boolean')) return { invalid: true };
+        const marks = indexTicks(await readTicks());
+        const settings = await personalSettings();
+        const active = resume(rows, marks, settings);
+        const checked = marks.get(id) || new Set();
+        marks.set(id, checked);
+        const wasComplete = done(day, checked);
+        const add = [];
+        const drop = [];
+        for (const [step, value] of Object.entries(changes)) {
+          if (value) { add.push(step); checked.add(step); }
+          else { drop.push(step); checked.delete(step); }
+        }
+        await writeMarks(id, add, true);
+        await writeMarks(id, drop, false);
+        const isComplete = done(day, checked);
+        let next = null;
+        if (isComplete && !wasComplete) await execute('INSERT OR IGNORE INTO account_completions VALUES (?,?,?)', [account, id, new Date().toISOString()]);
+        if (isComplete && (finish || active?.id === id)) {
+          const index = rows.indexOf(day);
+          next = [...rows.slice(index + 1), ...rows.slice(0, index)].find(row => !done(row, marks.get(row.id)))?.id ?? null;
+          await setPersonal('active', next ?? '');
+          await setPersonal('step', '');
+        } else if (active?.id === id || !active) {
+          settings.active = id;
+          await setPersonal('active', id);
+          await setPersonal('step', resume(rows, marks, settings)?.step ?? '');
+        }
+        return { next };
+      });
+    }
+    const hasNotice = async date => Boolean(await get('SELECT 1 FROM account_daily WHERE account=? AND date=?', [account, date]));
+    async function makeNotice(now = new Date()) {
+      const { date, hour } = bogota(now);
+      if (hour < 5) return false;
+      const [rows, settings, marks, agenda] = await Promise.all([lessons(), personalSettings(), readTicks(), sessions()]);
+      const cursor = resume(rows, indexTicks(marks), settings);
+      const scheduled = agenda.filter(row => row.date === date);
+      const ids = [...new Set(scheduled.map(row => row.lesson).filter(Boolean))];
+      if (cursor && !ids.includes(cursor.id)) ids.push(cursor.id);
+      const data = { date, created: now.toISOString(), track: TRAYECTO, cursor, scheduled, source: source(settings),
+        lessons: ids.map(id => rows.find(day => day.id === id)).filter(Boolean) };
+      return Boolean((await execute('INSERT OR IGNORE INTO account_daily VALUES (?,?,?)', [account, date, JSON.stringify(data)])).changes);
+    }
+    async function snapshot(now = new Date()) {
+      const [rows, checked, settings, agenda, history, notices, legacyNotices] = await Promise.all([
+        lessons(), readTicks(), personalSettings(), sessions(),
+        all('SELECT lesson,completed FROM account_completions WHERE account=? ORDER BY completed DESC, lesson', [account]),
+        all('SELECT data FROM account_daily WHERE account=? ORDER BY date DESC', [account]),
+        owner ? all('SELECT date,lesson FROM inbox ORDER BY date DESC, lesson') : [],
+      ]);
+      return {
+        today: bogota(now).date, track: TRAYECTO, modules: MODULES, lessons: rows, checked, sessions: agenda,
+        resume: resume(rows, indexTicks(checked), settings), source: source(settings), history,
+        notices: notices.map(row => JSON.parse(row.data)), legacyNotices, chatFocus: JSON.parse(settings['chat-focus'] || 'null'),
+      };
+    }
+    async function chatHistory(id, step) {
+      const recent = await all('SELECT role,content,created FROM account_messages WHERE account=? AND lesson=? AND step=? ORDER BY id', [account, id, step]);
+      if (step || !owner) return recent;
+      return [...await all('SELECT role,content,NULL AS created FROM chat WHERE lesson=? ORDER BY id', [id]), ...recent];
+    }
+    function saveChat(id, step, prompt, answer) {
+      const now = new Date().toISOString();
+      return execute('INSERT INTO account_messages(account,lesson,step,role,content,created) VALUES(?,?,?,?,?,?),(?,?,?,?,?,?)',
+        [account, id, step, 'user', prompt, now, account, id, step, 'assistant', answer, now]);
+    }
+    return { find, ticks, applyTicks, hasNotice, makeNotice, snapshot, chatHistory, saveChat,
+      focus: (id, step) => setPersonal('chat-focus', JSON.stringify({ id, step })) };
   }
   function saveLesson(id, data) {
     return transaction(async () => {
@@ -163,9 +249,9 @@ export async function openStore(path, db = localDatabase(path)) {
         const sameSteps = previous.every((quest, i) => data.quests[i]?.[0] === quest[0]
           && quest[2].every((step, j) => step === data.quests[i][2][j]));
         // La Beta identifica las casillas y los hilos por posición.
-        if (!sameSteps && await get(`SELECT 1 FROM ticks WHERE lesson=?
-          UNION ALL SELECT 1 FROM completions WHERE lesson=?
-          UNION ALL SELECT 1 FROM messages WHERE lesson=?
+        if (!sameSteps && await get(`SELECT 1 FROM account_ticks WHERE lesson=?
+          UNION ALL SELECT 1 FROM account_completions WHERE lesson=?
+          UNION ALL SELECT 1 FROM account_messages WHERE lesson=?
           UNION ALL SELECT 1 FROM chat WHERE lesson=? LIMIT 1`, [id, id, id, id])) return null;
         await update({ ...lesson, ...data });
         return id;
@@ -208,46 +294,15 @@ export async function openStore(path, db = localDatabase(path)) {
       if (status === 'manual') await saveSetting('moodle-consulted', bogota().date);
     });
   }
-  const hasNotice = async date => Boolean(await get('SELECT 1 FROM daily WHERE date=?', [date]));
-  async function makeNotice(now = new Date()) {
-    const { date, hour } = bogota(now);
-    if (hour < 5) return false;
-    return transaction(async () => {
-      if (await hasNotice(date)) return false;
-      const rows = await lessons();
-      const settings = await readSettings();
-      const cursor = resume(rows, indexTicks(await readTicks()), settings);
-      const scheduled = (await sessions()).filter(row => row.date === date);
-      const ids = [...new Set(scheduled.map(row => row.lesson).filter(Boolean))];
-      if (cursor && !ids.includes(cursor.id)) ids.push(cursor.id);
-      const data = { date, created: now.toISOString(), track: TRAYECTO, cursor, scheduled, source: source(settings),
-        lessons: ids.map(id => rows.find(day => day.id === id)).filter(Boolean) };
-      await execute('INSERT INTO daily VALUES (?,?)', [date, JSON.stringify(data)]);
-      return true;
-    });
+  const owner = forAccount('owner');
+  async function makeNotices(now) {
+    const { date } = bogota(now);
+    const accounts = await all(`SELECT id FROM (SELECT 'owner' AS id UNION SELECT id FROM accounts)
+      WHERE NOT EXISTS (SELECT 1 FROM account_daily WHERE account=id AND date=?)`, [date]);
+    let created = false;
+    for (const { id } of accounts) created = await forAccount(id).makeNotice(now) || created;
+    return created;
   }
-  async function snapshot(now = new Date()) {
-    const [rows, checked, settings, agenda, history, notices, legacyNotices] = await Promise.all([
-      lessons(), readTicks(), readSettings(), sessions(), all('SELECT * FROM completions ORDER BY completed DESC, lesson'),
-      all('SELECT data FROM daily ORDER BY date DESC'), all('SELECT date,lesson FROM inbox ORDER BY date DESC, lesson'),
-    ]);
-    return {
-      today: bogota(now).date, track: TRAYECTO, modules: MODULES, lessons: rows, checked, sessions: agenda,
-      resume: resume(rows, indexTicks(checked), settings), source: source(settings), history,
-      notices: notices.map(row => JSON.parse(row.data)), legacyNotices, chatFocus: JSON.parse(settings['chat-focus'] || 'null'),
-    };
-  }
-  async function chatHistory(id, step) {
-    const recent = await all('SELECT role,content,created FROM messages WHERE lesson=? AND step=? ORDER BY id', [id, step]);
-    if (step) return recent;
-    return [...await all('SELECT role,content,NULL AS created FROM chat WHERE lesson=? ORDER BY id', [id]), ...recent];
-  }
-  function saveChat(id, step, prompt, answer) {
-    const now = new Date().toISOString();
-    return execute('INSERT INTO messages(lesson,step,role,content,created) VALUES(?,?,?,?,?),(?,?,?,?,?)',
-      [id, step, 'user', prompt, now, id, step, 'assistant', answer, now]);
-  }
-  return { find, ticks, applyTicks, saveLesson, saveSession, removeSession, recordMoodle, hasNotice, makeNotice, snapshot,
-    chatHistory, saveChat, focus: (id, step) => saveSetting('chat-focus', JSON.stringify({ id, step })), close: db.close };
+  return { ...owner, forAccount: account => ({ ...forAccount(account), saveLesson, saveSession, removeSession, recordMoodle }),
+    saveLesson, saveSession, removeSession, recordMoodle, makeNotices, db, close: db.close };
 }
-
