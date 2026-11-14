@@ -1,0 +1,520 @@
+const $ = id => document.getElementById(id);
+const tabs = [...document.querySelectorAll('nav button')];
+const el = (tag, text, cls) => {
+  const node = document.createElement(tag);
+  if (text != null) node.textContent = text;
+  if (cls) node.className = cls;
+  return node;
+};
+function box(tag, cls, ...items) {
+  const node = el(tag, null, cls);
+  node.append(...items);
+  return node;
+}
+function button(label, action, cls) {
+  const node = el('button', label, cls);
+  node.type = 'button';
+  node.onclick = action;
+  return node;
+}
+function link(label, url, cls) {
+  const node = el('a', label, cls);
+  node.href = url;
+  node.target = '_blank';
+  node.rel = 'noopener noreferrer';
+  return node;
+}
+function details(label, ...children) {
+  return box('details', '', el('summary', label), ...children);
+}
+function status(text, error = false) {
+  $('status').textContent = text;
+  $('status').toggleAttribute('data-error', error);
+}
+async function api(path, data) {
+  const response = await fetch(path, data === undefined ? {} : {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+  });
+  if (response.status === 401) throw new Error('Vuelve a iniciar sesión en el tablero.');
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error);
+  return payload;
+}
+
+let state, selected, focus, week, pending = false, chatPending = false, chatLoad = 0;
+let activeTab = 'check';
+const opened = new Map();
+const moduleName = id => state.modules.find(item => item.id === id)?.name || id;
+const lesson = id => state.lessons.find(day => day.id === id);
+const dayName = day => `Semana ${day.week} · Día ${day.day}`;
+const fullName = day => moduleName(day.module) + ' · ' + dayName(day);
+const dateLabel = (date, long = false) => new Intl.DateTimeFormat('es-CO', {
+  timeZone: 'UTC', ...(long ? { weekday: 'long' } : {}), day: 'numeric', month: 'long',
+  ...(long ? { year: 'numeric' } : {}),
+}).format(new Date(date + 'T12:00:00Z'));
+function offset(date, days) {
+  const instant = new Date(date + 'T12:00:00Z');
+  instant.setUTCDate(instant.getUTCDate() + days);
+  return instant.toISOString().slice(0, 10);
+}
+function monday(date) {
+  const number = new Date(date + 'T12:00:00Z').getUTCDay();
+  return offset(date, -((number + 6) % 7));
+}
+function completed(day) {
+  const marked = new Set(state.checked.filter(row => row.lesson === day.id).map(row => row.step));
+  const total = day.quests.reduce((sum, q) => sum + q[2].length, 0);
+  const count = day.quests.reduce((sum, q, i) => sum + q[2].filter((_, j) => marked.has(i + '-' + j)).length, 0);
+  return { marked, total, count, done: total > 0 && count === total };
+}
+function stateLabel(day) {
+  const progress = completed(day);
+  if (!progress.total) return 'Checklist pendiente de verificar';
+  if (progress.done) return 'Completado';
+  if (progress.count || state.resume?.id === day.id) return 'En curso';
+  return 'Pendiente';
+}
+function cursorLabel(cursor, day) {
+  if (!day) return 'Todos los días del tablero están completos.';
+  if (!cursor?.step) return fullName(day) + ' · Checklist pendiente';
+  const [i, j] = cursor.step.split('-').map(Number);
+  const quest = day.quests[i];
+  return quest ? fullName(day) + ` · MiniReto ${i + 1} · ${quest[0]} · Paso ${j + 1}` : fullName(day);
+}
+function show(tab) {
+  activeTab = tab;
+  for (const item of tabs) {
+    const current = item.dataset.tab === tab;
+    if (current) item.setAttribute('aria-current', 'page');
+    else item.removeAttribute('aria-current');
+    $(item.dataset.tab).hidden = !current;
+  }
+  if (state && tab === 'chat') openChat(focus || { id: selected, step: '' }, false);
+  window.scrollTo(0, 0);
+}
+for (const tab of tabs) tab.onclick = () => state && show(tab.dataset.tab);
+function select(id, step) {
+  selected = id;
+  if (step) opened.set(id, new Set([Number(step.split('-')[0])]));
+  renderCheck();
+  show('check');
+}
+const openDay = (id, step) => button('Abrir checklist', () => select(id, step), 'secondary');
+async function update(path, payload, onSuccess, message = 'Guardado.') {
+  if (pending) return;
+  pending = true;
+  status('Guardando…');
+  try {
+    const next = await api(path, payload);
+    state = next;
+    onSuccess?.(next);
+    render();
+    status(typeof message === 'function' ? message(next) : message);
+    return true;
+  } catch (error) {
+    status(error.message, true);
+    if (path === '/api/ticks') renderCheck();
+  } finally {
+    pending = false;
+  }
+}
+function checkbox(title, checked, partial, action) {
+  const input = el('input');
+  input.type = 'checkbox';
+  input.checked = checked;
+  input.indeterminate = partial;
+  input.onchange = () => {
+    if (pending) {
+      input.checked = checked;
+      input.indeterminate = partial;
+      return;
+    }
+    action(input.checked);
+  };
+  return box('label', 'check', input, el('span', title));
+}
+function setTicks(id, ids, value, finish = false) {
+  update('/api/ticks', { id, finish: finish && value, changes: Object.fromEntries(ids.map(key => [key, value])) },
+    next => {
+      if (finish && value && next.next) selected = next.next;
+    }, next => finish && value && next.next ? 'Día guardado. Estás viendo el siguiente día pendiente.' : 'Avance guardado.');
+}
+function field(form, label, name, value, options = {}) {
+  let input;
+  if (options.choices) {
+    input = el('select');
+    for (const [key, title] of options.choices) {
+      const option = el('option', title);
+      option.value = key;
+      input.append(option);
+    }
+  } else {
+    input = el(options.multiline ? 'textarea' : 'input');
+    if (!options.multiline) input.type = options.type || 'text';
+    if (options.type === 'number') { input.min = '1'; input.max = '99'; }
+  }
+  input.name = name;
+  input.value = value ?? '';
+  input.required = !options.optional;
+  form.append(box('label', options.wide ? 'wide' : '', label, input));
+  return input;
+}
+function renderSources() {
+  const src = state.source;
+  const title = { manual: 'Moodle · carga manual', available: 'Moodle · conexión comprobada',
+    expired: 'Moodle · sesión vencida', unavailable: 'Moodle · conexión no disponible' }[src.status];
+  const notice = details(title,
+    el('p', 'Última consulta de contenido registrada: ' + dateLabel(src.consulted, true) + '.'),
+    el('p', 'Las fichas y las vinculaciones de fechas que falten quedan pendientes de verificar. Consulta la fuente oficial y carga el resultado en el tablero.'),
+    box('div', 'row', link('Reconectar Moodle', state.links.login, 'button secondary'),
+      link('Mis cursos · Inglés y HSE ↗', state.links.courses, 'button secondary'),
+      button('Indicar sesión vencida', () => update('/api/moodle', { action: 'expired' }), 'secondary'),
+      button('Registrar consulta manual', () => update('/api/moodle', { action: 'manual' }), 'secondary')));
+  if (state.moodleProbe) notice.append(button('Comprobar conexión', () => update('/api/moodle', { action: 'probe' })));
+  if (src.attempted) notice.append(el('small', 'Última comprobación: ' + dateLabel(src.attempted, true)));
+  notice.className = 'source';
+  if (src.status === 'expired') { notice.dataset.expired = ''; notice.open = true; }
+  const previous = $('sources').querySelector('details');
+  if (previous?.open) notice.open = true;
+  $('sources').replaceChildren(notice);
+}
+const blankQuest = ['', '', [''], { requirements: '', criteria: '', deliverable: '' }];
+function lessonForm(day) {
+  const form = el('form', null, 'forms');
+  if (!day) {
+    field(form, 'Módulo', 'module', state.modules[0].id, { choices: state.modules.map(m => [m.id, m.name]) });
+    field(form, 'Semana del curso', 'week', 1, { type: 'number' });
+    field(form, 'Día del curso', 'day', 1, { type: 'number' });
+  }
+  field(form, 'Tema', 'title', day?.title);
+  field(form, 'Tecnología de la ficha', 'technology', day?.technology);
+  const url = field(form, 'Enlace oficial a Moodle', 'url', day?.url || state.links.course, { type: 'url', wide: true });
+  if (!day) {
+    form.elements.namedItem('module').onchange = event => {
+      if (state.modules.some(module => module.url === url.value)) {
+        url.value = state.modules.find(module => module.id === event.target.value).url;
+      }
+    };
+  }
+  field(form, 'Resumen', 'summary', day?.consulted ? day.summary : '', { multiline: true, wide: true });
+  const quests = el('div', null, 'wide');
+  form.append(quests);
+  function appendQuest(q) {
+    const part = el('fieldset', null, 'card');
+    const legend = el('legend');
+    part.append(legend);
+    field(part, 'Título', 'title', q[0]);
+    field(part, 'Contexto', 'context', q[1], { multiline: true });
+    field(part, 'Pasos (uno por línea)', 'steps', q[2].join('\n'), { multiline: true });
+    field(part, 'Requisitos', 'requirements', q[3]?.requirements);
+    field(part, 'Criterios', 'criteria', q[3]?.criteria);
+    field(part, 'Entregable', 'deliverable', q[3]?.deliverable);
+    part.append(button('Quitar minirreto', () => {
+      if (quests.children.length > 1) part.remove();
+      [...quests.children].forEach((item, i) => item.firstChild.textContent = 'MiniReto ' + (i + 1));
+    }, 'secondary'));
+    quests.append(part);
+    legend.textContent = 'MiniReto ' + quests.children.length;
+  }
+  (day?.quests.length ? day.quests : [blankQuest]).forEach(appendQuest);
+  form.append(box('div', 'row wide', button('Añadir minirreto', () => appendQuest(blankQuest), 'secondary'), el('button', 'Guardar checklist')));
+  form.onsubmit = event => {
+    event.preventDefault();
+    const input = name => form.elements.namedItem(name).value;
+    const data = {
+      id: day?.id, module: day?.module || input('module'), week: day?.week || Number(input('week')),
+      day: day?.day || Number(input('day')), url: input('url'), technology: input('technology'), summary: input('summary'),
+      title: form.querySelector('input[name=title]').value,
+      quests: [...quests.children].map(part => {
+        const value = name => part.elements.namedItem(name).value.trim();
+        return [value('title'), value('context'), value('steps').split('\n').map(line => line.trim()).filter(Boolean), {
+          requirements: value('requirements'), criteria: value('criteria'), deliverable: value('deliverable'),
+        }];
+      }),
+    };
+    update('/api/import', data, next => { selected = next.selected; }, 'Checklist guardado.');
+  };
+  return details(day?.quests.length ? 'Editar ficha de Moodle' : 'Cargar checklist', el('p', 'En Moodle abre Semana → Día correspondiente → Reto → Tus MiniRetos de hoy. Expande cada tarjeta y registra los datos de la ficha.'), form);
+}
+function renderCheck() {
+  const d = lesson(selected);
+  if (!d) return;
+  const cursor = state.resume;
+  const resume = box('article', 'card hero', el('small', state.track), el('h2', 'Retoma aquí'),
+    el('p', cursorLabel(cursor, lesson(cursor?.id))));
+  if (cursor && cursor.id !== d.id) resume.append(openDay(cursor.id, cursor.step));
+  const today = state.sessions.filter(row => row.date === state.today);
+  const scheduled = box('article', 'card', el('h3', 'Programado para el clan'), el('small', dateLabel(state.today, true)));
+  if (!today.length) scheduled.append(el('p', 'Sin programación verificada'));
+  today.forEach(session => scheduled.append(sessionContent(session, true)));
+  const picker = el('select');
+  picker.setAttribute('aria-label', 'Día del curso');
+  for (const module of state.modules) {
+    const group = el('optgroup');
+    group.label = module.name;
+    for (const row of state.lessons.filter(day => day.module === module.id)) {
+      const option = el('option', dayName(row) + ' · ' + row.title);
+      option.value = row.id;
+      group.append(option);
+    }
+    if (group.childElementCount) picker.append(group);
+  }
+  picker.value = d.id;
+  picker.onchange = () => select(Number(picker.value));
+  const progress = completed(d);
+  const sessions = state.sessions.filter(row => row.lesson === d.id);
+  const intro = box('article', 'card', el('small', state.track), el('p', fullName(d), 'eyebrow'),
+    el('h2', d.title), el('p', d.summary, 'copy'),
+    el('p', sessions.length ? 'Fecha programada para Ritchie: ' + dateLabel(sessions[0].date, true) : 'Fecha programada para Ritchie: sin programación verificada.'),
+    el('small', d.consulted ? 'Ficha consultada el ' + dateLabel(d.consulted, true) : 'Ficha de Moodle pendiente de verificar.'),
+    el('small', d.technology || 'Tecnología pendiente de verificar.'),
+    link('Ver la ficha en Moodle ↗', d.url));
+  if (progress.total) {
+    const bar = el('progress');
+    bar.max = progress.total;
+    bar.value = progress.count;
+    bar.setAttribute('aria-label', 'Avance del día');
+    const ids = d.quests.flatMap((q, i) => q[2].map((_, j) => i + '-' + j));
+    intro.append(bar, el('small', progress.count + ' de ' + progress.total + ' pasos'), checkbox('Día completado',
+      progress.done, progress.count > 0 && !progress.done, value => setTicks(d.id, ids, value, true)));
+  } else intro.append(el('p', 'Pendiente de cargar las instrucciones de este día.', 'eyebrow'));
+  $('check').replaceChildren(resume, scheduled, box('label', '', 'Día del curso', picker), intro);
+  if (d.quests.length) $('check').append(el('h3', 'Tus MiniRetos de hoy'));
+  d.quests.forEach(([title, context, steps, meta], i) => {
+    const ids = steps.map((_, j) => i + '-' + j);
+    const count = ids.filter(key => progress.marked.has(key)).length;
+    const card = details(`MiniReto ${i + 1} · ${title} · ${count}/${ids.length}`, el('p', context, 'copy'),
+      el('p', 'Entregable · ' + (meta?.deliverable || 'Pendiente de verificar en Moodle.'), 'copy quest-meta'),
+      checkbox('MiniReto completado', count === ids.length, count > 0 && count < ids.length, value => setTicks(d.id, ids, value)),
+      el('h4', 'Pasos del MiniReto ' + (i + 1)));
+    if (meta) card.append(details('Requisitos y criterios', el('p', meta.requirements, 'copy'), el('p', meta.criteria, 'copy')));
+    const saved = opened.get(d.id) || new Set(cursor?.id === d.id && cursor.step ? [Number(cursor.step.split('-')[0])] : []);
+    card.open = saved.has(i);
+    card.ontoggle = () => {
+      if (card.open) saved.add(i);
+      else saved.delete(i);
+      opened.set(d.id, saved);
+    };
+    steps.forEach((task, j) => {
+      const key = ids[j];
+      const current = cursor?.id === d.id && cursor.step === key;
+      const label = `Paso ${j + 1} · ${task}`;
+      const ask = button('Pedir guía', () => {
+        focus = { id: d.id, step: key };
+        show('chat');
+      }, 'secondary');
+      ask.setAttribute('aria-label', 'Pedir guía del MiniReto ' + (i + 1) + ', Paso ' + (j + 1));
+      card.append(box('div', current ? 'step current' : 'step',
+        checkbox(label + (current ? ' (En curso)' : ''), progress.marked.has(key), false, value => setTicks(d.id, [key], value)), ask));
+    });
+    $('check').append(card);
+  });
+  $('check').append(lessonForm(d), details('Añadir otro día del curso', lessonForm()));
+}
+function sessionContent(s, compact = false) {
+  const day = lesson(s.lesson);
+  const node = box('div', 'session', el('h4', s.label || day?.title), el('small', s.hours));
+  if (day) {
+    node.append(el('p', fullName(day) + ' · ' + day.title), el('small', stateLabel(day)),
+      el('small', day.quests.length ? day.quests.map(q => q[0]).join(' · ') : 'MiniRetos pendientes de verificar'),
+      openDay(day.id));
+  } else {
+    if (s.module) node.append(box('p', '', link(moduleName(s.module) + ' · Abrir en Moodle ↗',
+      state.modules.find(module => module.id === s.module).url)));
+    node.append(el('small', 'Día del curso y minirretos sin vincular.'));
+  }
+  node.append(box('small', '', link('Fuente oficial ↗', s.source)));
+  if (!compact) node.append(el('small', 'Consultado el ' + dateLabel(s.consulted)), sessionForm(s, s.date));
+  return node;
+}
+function sessionForm(session, date) {
+  const form = el('form');
+  field(form, 'Fecha de Ritchie', 'date', date, { type: 'date' });
+  field(form, 'Día del curso vinculado', 'lesson', session?.lesson, { optional: true,
+    choices: [['', 'Sin vincular'], ...state.lessons.map(d => [d.id, fullName(d) + ' · ' + d.title])] });
+  field(form, 'Actividad del horario', 'label', session?.label, { optional: true });
+  field(form, 'Módulo', 'module', session?.module || '', { optional: true,
+    choices: [['', 'Inferir del nombre del bloque'], ...state.modules.map(m => [m.id, m.name])] });
+  field(form, 'Horario', 'hours', session?.hours, { optional: true });
+  field(form, 'Enlace oficial de origen', 'source', session?.source || state.links.agenda, { type: 'url' });
+  const controls = box('div', 'row', el('button', 'Guardar sesión'));
+  if (session) controls.append(button('Quitar fecha', () => {
+    if (window.confirm('¿Quitar esta sesión del calendario?')) update('/api/session', { id: session.id, remove: true });
+  }, 'danger'));
+  form.append(controls);
+  form.onsubmit = event => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(form));
+    update('/api/session', { ...data, id: session?.id, lesson: Number(data.lesson) || null });
+  };
+  return details(session ? 'Editar fecha o vincular checklist' : 'Agregar fecha', form);
+}
+function renderCalendar() {
+  const heading = box('div', 'row between', el('h2', 'Calendario Ritchie'),
+    box('div', 'row', button('Anterior', () => { week = offset(week, -7); renderCalendar(); }, 'secondary'),
+      button('Semana actual', () => { week = monday(state.today); renderCalendar(); }, 'secondary'),
+      button('Siguiente', () => { week = offset(week, 7); renderCalendar(); }, 'secondary')));
+  const output = el('div', null, 'calendar-days');
+  for (let i = 0; i < 7; i++) {
+    const date = offset(week, i);
+    const sessions = state.sessions.filter(row => row.date === date);
+    output.append(box('article', 'card', el('h3', dateLabel(date, true)),
+      ...(sessions.length ? sessions.map(s => sessionContent(s)) : [el('p', 'Sin programación verificada')]),
+      sessionForm(null, date)));
+  }
+  let official = $('calendar').querySelector('#official-agenda');
+  if (!official) {
+    const frame = el('iframe', null, 'agenda-frame');
+    frame.title = 'Agenda oficial del clan Ritchie';
+    frame.referrerPolicy = 'no-referrer';
+    official = details('Ver agenda oficial de Ritchie',
+      box('p', '', link('Abrir agenda en otra pestaña ↗', state.links.agenda),
+        ' · ', link('Genially oficial ↗', state.links.genially)), frame);
+    official.id = 'official-agenda';
+    official.ontoggle = () => { if (official.open && !frame.hasAttribute('src')) frame.src = state.links.agenda; };
+  }
+  $('calendar').replaceChildren(heading, official, el('p', dateLabel(week) + ' – ' + dateLabel(offset(week, 6)) + ' · Hora de Colombia'),
+    box('div', 'row', link('Área personal de Moodle ↗', state.links.calendar), link('Mis cursos ↗', state.links.courses)), output);
+}
+function noticeDay(day, cursor) {
+  const card = box('div', '', el('h4', fullName(day) + ' · ' + day.title), el('p', day.summary));
+  if (cursor) card.append(el('p', 'Retoma aquí · ' + cursorLabel(cursor, day)));
+  if (day.quests.length) {
+    card.append(el('h4', 'Tus MiniRetos de hoy'));
+    day.quests.forEach((q, i) => card.append(details('MiniReto ' + (i + 1) + ' · ' + q[0], el('p', q[1]),
+      box('ol', 'notice-list', ...q[2].map((task, index) => el('li', 'Paso ' + (index + 1) + ' · ' + task))))));
+  } else card.append(el('p', 'Pasos pendientes de verificar.'));
+  card.append(box('div', 'row', openDay(day.id, cursor?.step), link('Ver Moodle ↗', day.url)));
+  return card;
+}
+function renderInbox() {
+  const records = state.notices.map(notice => {
+    const card = box('article', 'card', el('h3', dateLabel(notice.date, true)), el('small', notice.track),
+      el('h4', 'Programado para el clan'));
+    if (!notice.scheduled.length) card.append(el('p', 'Sin programación verificada'));
+    for (const row of notice.scheduled) {
+      const day = notice.lessons.find(item => item.id === row.lesson);
+      card.append(el('p', (row.label || day?.title) + (row.hours ? ' · ' + row.hours : '')), link('Fuente de la fecha ↗', row.source));
+      card.append(day ? noticeDay(day) : box('div', '',
+        ...(row.module ? [link(moduleName(row.module) + ' · Abrir en Moodle ↗', state.modules.find(m => m.id === row.module).url)] : []),
+        el('p', 'Día del curso sin vincular.')));
+    }
+    card.append(el('h4', 'Tu siguiente paso'));
+    const personal = notice.lessons.find(day => day.id === notice.cursor?.id);
+    if (personal) {
+      card.append(notice.scheduled.some(row => row.lesson === personal.id) ? el('p', 'Retoma aquí · ' + cursorLabel(notice.cursor, personal)) : noticeDay(personal, notice.cursor));
+    } else card.append(el('p', cursorLabel(null, null)), link('Abrir curso en Moodle ↗', state.links.course));
+    const pendingInfo = notice.source.status === 'expired' ? 'Sesión de Moodle vencida. ' : notice.source.status === 'unavailable' ? 'Consulta de Moodle sin acceso. ' : '';
+    card.append(el('small', pendingInfo + 'Última consulta de contenido: ' + dateLabel(notice.source.consulted, true)
+      + '. Quedan pendientes las fichas o las vinculaciones que falten.'));
+    return card;
+  });
+  for (const entry of state.legacyNotices) {
+    const day = lesson(entry.lesson);
+    if (day) records.push(box('article', 'card', el('h3', dateLabel(entry.date, true)), el('small', 'Aviso de la Beta'), noticeDay(day)));
+  }
+  $('inbox').replaceChildren(el('h2', 'Avisos'), ...(records.length ? records : [el('p', 'Los avisos se guardan diariamente a partir de las 5:00 a. m., hora de Colombia.')]));
+}
+function renderHistory() {
+  const modules = state.modules.map(m => {
+    const days = state.lessons.filter(day => day.module === m.id);
+    return box('article', 'card', el('h3', m.name), el('p', days.length ?
+      days.filter(d => completed(d).done).length + ' de ' + days.length + ' días del tablero completados.' : 'Módulo pendiente de cargar.'));
+  });
+  const records = state.history.flatMap(row => {
+    const day = lesson(row.lesson);
+    if (!day) return [];
+    const text = row.completed ? 'Completado el ' + dateLabel(new Intl.DateTimeFormat('en-CA', {
+      timeZone: state.zone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date(row.completed)), true) : 'Completado en la Beta · fecha sin registrar';
+    return [box('article', 'card', el('h3', fullName(day) + ' · ' + day.title),
+      el('p', text), el('small', completed(day).done ? 'Completado' : 'Reabierto'), openDay(day.id))];
+  });
+  $('history').replaceChildren(el('h2', 'Historial'), ...modules, el('h3', 'Días registrados'),
+    ...(records.length ? records : [el('p', 'Aún no hay días completados.')]));
+}
+function renderMessages(history) {
+  $('messages').replaceChildren(...history.map(row => box('article', 'card msg ' + row.role,
+    el('p', row.role === 'user' ? 'Tú' : 'Asistente Riwi', 'message-role'), el('div', row.content))));
+}
+async function openChat(selection, guide) {
+  const day = lesson(selection?.id);
+  if (!day) return;
+  const stamp = ++chatLoad;
+  focus = selection;
+  const [i, j] = focus.step.split('-').map(Number);
+  const quest = focus.step && day.quests[i];
+  $('chat-title').textContent = quest ? 'Guía paso a paso' : 'Chat Riwi';
+  $('chat-context').replaceChildren(box('article', 'card', el('small', state.track),
+    el('h3', quest ? cursorLabel(focus, day) : fullName(day)), el('p', quest ? quest[1] : day.summary),
+    el('p', quest ? quest[2][j] : day.title), el('small', day.technology || 'Tecnología pendiente de verificar.'),
+    ...(quest ? [button('Generar guía', () => sendChat({ ...selection, guide: true }), 'secondary')] : []),
+    box('div', 'row', openDay(day.id, focus.step),
+      button('Chat general del día', () => openChat({ id: day.id, step: '' }, false), 'secondary'),
+      ...(selected !== day.id ? [button('Chat del checklist seleccionado', () => openChat({ id: selected, step: '' }, false), 'secondary')] : [])),
+    el('small', state.chatReady ? 'Asistente local configurado.' : 'Las preguntas libres se habilitan con un modelo local. La guía básica está disponible.')));
+  $('messages').replaceChildren(el('p', 'Cargando conversación…'));
+  $('send').disabled = !state.chatReady || chatPending;
+  try {
+    const result = await api('/api/focus', selection);
+    if (stamp !== chatLoad) return;
+    renderMessages(result.history);
+    if (quest && (guide || !result.history.length)) await sendChat({ ...selection, guide: true });
+  } catch (error) {
+    if (stamp === chatLoad) status(error.message, true);
+  }
+}
+async function sendChat(data) {
+  if (chatPending) return;
+  chatPending = true;
+  $('send').disabled = true;
+  status('Preparando respuesta…');
+  try {
+    const history = await api('/api/chat', data);
+    if (focus?.id === data.id && focus?.step === data.step) renderMessages(history);
+    if (!data.guide && focus?.id === data.id && focus?.step === data.step) $('question').value = '';
+    status('Conversación guardada.');
+  } catch (error) {
+    status(error.message, true);
+  } finally {
+    chatPending = false;
+    $('send').disabled = !state.chatReady;
+  }
+}
+$('ask').onsubmit = event => {
+  event.preventDefault();
+  if (focus && state.chatReady) sendChat({ ...focus, message: $('question').value });
+};
+function render() {
+  renderSources();
+  renderCheck();
+  renderCalendar();
+  renderInbox();
+  renderHistory();
+}
+async function refresh(initial) {
+  if (pending || chatPending) return;
+  try {
+    const next = await api('/api/state');
+    if (pending || chatPending) return;
+    state = next;
+    if (!selected) selected = state.resume?.id ?? state.lessons.at(-1)?.id;
+    if (initial) {
+      week = monday(state.today);
+      focus = state.chatFocus;
+      show('check');
+    }
+    if (initial || activeTab === 'inbox') render();
+    if (initial) status('');
+  } catch (error) {
+    if (initial) {
+      status(error.message, true);
+      $('sources').replaceChildren(button('Volver a cargar', () => refresh(true), 'secondary'));
+    }
+  }
+}
+refresh(true);
+setInterval(() => {
+  if (state && activeTab === 'inbox' && !document.hidden) refresh(false);
+}, 30000);
+

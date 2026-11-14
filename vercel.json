@@ -1,0 +1,24 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "node -e \"require('node:fs').mkdirSync('vercel-static',{recursive:true})\"",
+  "outputDirectory": "vercel-static",
+  "functions": {
+    "api/*.js": { "includeFiles": "{index.html,ui.js,ui.css,lessons.json}", "maxDuration": 30 }
+  },
+  "rewrites": [
+    { "source": "/", "destination": "/api/tablero?path=/" },
+    { "source": "/ui.css", "destination": "/api/tablero?path=/ui.css" },
+    { "source": "/ui.js", "destination": "/api/tablero?path=/ui.js" },
+    { "source": "/health", "destination": "/api/tablero?path=/health" },
+    { "source": "/api/state", "destination": "/api/tablero?path=/api/state" },
+    { "source": "/api/ticks", "destination": "/api/tablero?path=/api/ticks" },
+    { "source": "/api/import", "destination": "/api/tablero?path=/api/import" },
+    { "source": "/api/session", "destination": "/api/tablero?path=/api/session" },
+    { "source": "/api/moodle", "destination": "/api/tablero?path=/api/moodle" },
+    { "source": "/api/focus", "destination": "/api/tablero?path=/api/focus" },
+    { "source": "/api/chat/:thread*", "destination": "/api/tablero?path=/api/chat/:thread*" },
+    { "source": "/api/chat", "destination": "/api/tablero?path=/api/chat" }
+  ],
+  "crons": [{ "path": "/api/cron", "schedule": "0 10 * * *" }]
+}

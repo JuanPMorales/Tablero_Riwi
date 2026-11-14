@@ -1,0 +1,17 @@
+services:
+  tablero:
+    build: .
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: 8765
+      RIWI_BIND: 0.0.0.0
+      RIWI_DB_PATH: /data/riwi.sqlite
+      RIWI_OLLAMA_MODEL: ""
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - riwi_data:/data
+    restart: unless-stopped
+volumes:
+  riwi_data:

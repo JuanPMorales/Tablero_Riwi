@@ -1,3 +1,10 @@
-*.sqlite*
-.env*
-.git
+*
+!server.mjs
+!store.mjs
+!database.mjs
+!guide.mjs
+!catalog.mjs
+!index.html
+!lessons.json
+!ui.js
+!ui.css

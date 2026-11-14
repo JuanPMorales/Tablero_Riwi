@@ -1,0 +1,11 @@
+.git
+.vercel
+node_modules
+.env*
+*.sqlite*
+*.db
+*.db-*
+data/
+backups/
+*.test.mjs
+vercel-static/

@@ -1,151 +1,43 @@
 <!doctype html>
-<html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Mi tablero Riwi · V1.0 Beta</title>
-<style>
-*{box-sizing:border-box}body{margin:0;background:#eaf3fc;color:#153352;font:16px/1.5 system-ui,sans-serif}header{background:#1264ad;color:white;padding:18px max(18px,calc((100% - 1060px)/2));display:flex;align-items:center;gap:16px;justify-content:space-between}header a{color:white}main{max-width:1100px;margin:auto;display:grid;grid-template-columns:215px 1fr;min-height:88vh}nav{background:#fff;padding:14px}nav button{width:100%;text-align:left;margin:3px 0;background:#fff;color:#153f66}nav button[aria-current=true]{background:#dbeeff;font-weight:bold}section{padding:20px}article,details{background:#fff;border:1px solid #c9def3;border-radius:14px;padding:16px;margin:0 0 12px}button{cursor:pointer;background:#1264ad;color:#fff;border:0;border-radius:8px;padding:8px 12px;font:inherit}button:disabled{opacity:.55}a{color:#0c59a1}label{display:flex;align-items:baseline;gap:9px;padding:7px 0}input[type=checkbox]{accent-color:#167bc9}h1,h2,h3,p{margin:0 0 10px}summary{cursor:pointer;font-weight:bold}textarea,select{width:100%;font:inherit;margin:7px 0;padding:8px}textarea{min-height:95px}small{display:block}.msg{white-space:pre-wrap}.user{margin-left:12%;background:#ddecfb}progress{width:100%;height:12px}#status{margin:0 auto;max-width:1060px;padding:0 16px;color:#78321d}#status:empty{display:none}.step{border-top:1px solid #dceaf7;padding:5px 0}.step button{background:#e7f3ff;color:#124e81;font-size:.88rem} @media(max-width:690px){main{display:block}nav{display:flex;gap:4px;padding:6px}nav button{text-align:center;padding:8px 5px}section{padding:12px}}
-</style>
-<header><h1>Mi tablero Riwi <small>V1.0 Beta</small></h1><a href="https://moodle.riwi.io/course/view.php?id=137" target="_blank" rel="noopener">Abrir Moodle Riwi</a></header>
-<p id="status" role="status"></p>
-<main><nav aria-label="Secciones"><button data-tab="check" aria-current="true">Checklist</button><button data-tab="inbox">Avisos</button><button data-tab="history">Historial</button><button data-tab="chat">Chat Riwi</button></nav>
-<div>
-<section id="check"><label for="days">Día del módulo</label><select id="days"></select><div id="lesson"></div></section>
-<section id="inbox" hidden><h2>Avisos</h2><div id="notices"></div></section>
-<section id="history" hidden><h2>Historial de avance</h2><div id="completed"></div></section>
-<section id="chat" hidden><h2>Chat Riwi</h2><p id="focus"></p><div id="messages" aria-live="polite"></div><form id="ask"><label for="question">Tu pregunta</label><textarea id="question" required maxlength="4000"></textarea><button id="send">Enviar</button></form></section>
-</div></main>
-<script>
-const $=id=>document.getElementById(id);
-const tabs=[...document.querySelectorAll('nav button')];
-let state,selected,focus='',chatLoad=0,writing=false;
-const add=(tag,text)=>{const node=document.createElement(tag);node.textContent=text;return node;};
-const button=(text,action)=>{const node=add('button',text);node.type='button';node.onclick=action;return node;};
-function show(id){
-  for(const tab of tabs){
-    const current=tab.dataset.tab===id;
-    tab.setAttribute('aria-current',String(current));$(tab.dataset.tab).hidden=!current;
-  }
-  if(id==='chat'&&state)loadChat();
-}
-tabs.forEach(tab=>tab.onclick=()=>show(tab.dataset.tab));
-async function api(path,body){
-  const response=await fetch(path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  const data=await response.json();
-  if(!response.ok)throw new Error(data.error);return data;
-}
-const label=d=>'Semana '+d.week+' · Día '+d.day+' — '+d.title;
-const day=()=>state.lessons.find(d=>d.id===selected);
-const marks=d=>new Set(state.checked.filter(row=>row.lesson===d.id).map(row=>row.step));
-const keys=d=>d.quests.flatMap((q,i)=>q[2].map((_,j)=>i+'-'+j));
-const done=d=>keys(d).length>0&&keys(d).every(id=>marks(d).has(id));
-function select(id){
-  selected=id;focus='';render();if(!$('chat').hidden)loadChat();
-}
-function checkbox(title,value,partial,action){
-  const wrapper=add('label',''),input=document.createElement('input');
-  input.type='checkbox';input.checked=value;input.indeterminate=partial;input.disabled=writing;
-  input.onchange=()=>action(input.checked); wrapper.append(input,title);return wrapper;
-}
-async function change(ids,value,advance=false){
-  if(writing)return;
-  const id=selected;
-  const open=[...document.querySelectorAll('#lesson details[open]')].map(card=>card.dataset.quest);
-  writing=true;render(open);
-  try{
-    state=await api('/api/ticks',{id,changes:Object.fromEntries(ids.map(key=>[key,value]))});
-    if(advance&&value&&state.active){
-      selected=state.active;focus='';
-      $('status').textContent='Día guardado. Abrimos el siguiente día pendiente.';
-    }else $('status').textContent='Avance guardado.';
-  }catch(error){$('status').textContent=error.message;}
-  finally{writing=false;render(selected===id?open:[]);}
-}
-function item(d){
-  const node=add('article','');node.append(add('h3',label(d)),button('Abrir checklist',()=>{select(d.id);show('check');}));return node;
-}
-function render(open=[]){
-  const d=day(), checked=marks(d), ids=keys(d);
-  $('days').replaceChildren(...state.lessons.map(row=>{
-    const option=add('option',label(row)+(done(row)?' ✓':''));option.value=row.id;return option;
-  }));$('days').value=d.id;
-  const intro=add('article',''), link=add('a','Ver día en Moodle Riwi');
-  link.href=d.url;link.target='_blank';link.rel='noopener';
-  intro.append(add('h2','Algoritmia 2 · '+label(d)),add('p',d.summary),link);
-  if(ids.length){
-    const progress=document.createElement('progress');progress.max=ids.length;progress.value=checked.size;
-    intro.append(progress,add('small',checked.size+' de '+ids.length+' pasos completados'),
-      checkbox('Día completado',done(d),checked.size>0&&!done(d),value=>change(ids,value,true)));
-  }
-  $('lesson').replaceChildren(intro);
-  if(!ids.length){
-    const box=add('details','');box.append(add('summary','Cargar los minirretos de este día'));
-    const field=add('textarea','');field.setAttribute('aria-label','Resumen y minirretos en JSON');
-    field.value=JSON.stringify({summary:'',quests:[['Título del minirreto','Contexto',['Primer paso']]]},null,2);
-    box.append(add('p','Abre en Moodle la pestaña Reto y revisa «Tus MiniRetos de hoy». Completa el resumen, el contexto y los pasos aquí.'),field,
-      button('Guardar y crear aviso',async()=>{
-        try{
-          const input=JSON.parse(field.value);
-          const date=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Bogota',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-          state=await api('/api/import',{id:d.id,summary:input.summary,quests:input.quests,date});render();
-          $('status').textContent='Checklist y aviso guardados.';
-        }catch(error){$('status').textContent=error.message;}
-      }));
-    $('lesson').append(box);
-  }else{
-    $('lesson').append(add('h3','Tus MiniRetos de hoy'));
-    d.quests.forEach(([title,context,steps],i)=>{
-      const card=add('details',''), ids=steps.map((_,j)=>i+'-'+j);
-      const count=ids.filter(id=>checked.has(id)).length;
-      card.dataset.quest=String(i);card.open=open.includes(String(i))||(!open.length&&d.id===1&&i===2);
-      card.append(add('summary','MiniReto '+(i+1)+' — '+title+' · '+count+'/'+ids.length),
-        add('p',context),checkbox('MiniReto completado',count===ids.length,count>0&&count<ids.length,value=>change(ids,value)),
-        add('h3','Pasos del MiniReto '+(i+1)));
-      steps.forEach((step,j)=>{
-        const row=add('div','');row.className='step';
-        row.append(checkbox('Paso '+(j+1)+' · '+step,checked.has(ids[j]),false,value=>change([ids[j]],value)),
-          button('Pedir guía del paso '+(j+1),()=>{
-            focus=('MiniReto '+(i+1)+' — '+title+' · Paso '+(j+1)+': '+step).slice(0,1000);
-            $('question').value='Explícame este paso con un ejemplo.';show('chat');$('question').focus();
-          }));
-        card.append(row);
-      });
-      $('lesson').append(card);
-    });
-  }
-  const records=state.lessons.filter(done);
-  $('completed').replaceChildren(...(records.length?records.map(item):[add('p','Aún no hay días completados.')]));
-  const entries=state.inbox.map(n=>{
-    const row=state.lessons.find(d=>d.id===n.lesson);
-    const node=item(row);node.prepend(add('small',n.date));node.append(add('p',row.summary));return node;
-  });
-  $('notices').replaceChildren(...(entries.length?entries:[add('p','Los avisos aparecen cuando se carga un checklist.')]));
-  $('send').disabled=!state.chatReady;
-}
-$('days').onchange=()=>select(Number($('days').value));
-function message(role,text){
-  const node=add('article',text);node.className='msg '+role;$('messages').append(node);
-}
-async function loadChat(){
-  const stamp=++chatLoad;
-  $('focus').textContent=focus||label(day());
-  $('messages').replaceChildren();
-  if(!state.chatReady)$('messages').append(add('p','Para activar el chat, configura OPENAI_API_KEY en el servidor.'));
-  try{
-    const history=await api('/api/chat/'+selected);
-    if(stamp===chatLoad)for(const row of history)message(row.role,row.content);
-  }catch(error){$('status').textContent=error.message;}
-}
-$('ask').onsubmit=async event=>{
-  event.preventDefault();
-  if(!state.chatReady||$('send').disabled)return;
-  const id=selected, text=$('question').value;
-  $('send').disabled=true;$('status').textContent='Consultando…';
-  try{
-    await api('/api/chat',{id,message:text,focus});
-    if(id===selected){$('question').value='';await loadChat();}
-    $('status').textContent='';
-  }catch(error){$('status').textContent=error.message;}
-  finally{$('send').disabled=!state.chatReady;}
-};
-api('/api/state').then(data=>{state=data;select(data.active??data.lessons.at(-1).id);}).catch(error=>{$('status').textContent=error.message;});
-</script>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Mi tablero Riwi · V1.0 Beta</title>
+  <link rel="stylesheet" href="/ui.css">
+  <script defer src="/ui.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="brand-mark" aria-hidden="true">R</span><div><h1>Mi tablero Riwi</h1><small>Desarrollo de Software · Clan Ritchie</small></div></div>
+    <a class="button outline" href="https://moodle.riwi.io/course/view.php?id=137" target="_blank" rel="noopener noreferrer">Moodle Riwi ↗</a>
+  </header>
+  <div class="layout">
+    <nav aria-label="Secciones">
+      <button type="button" data-tab="check" aria-current="page"><span aria-hidden="true">✓</span><span>Hoy / Checklist</span></button>
+      <button type="button" data-tab="calendar"><span aria-hidden="true">▦</span><span>Calendario Ritchie</span></button>
+      <button type="button" data-tab="inbox"><span aria-hidden="true">▤</span><span>Avisos</span></button>
+      <button type="button" data-tab="history"><span aria-hidden="true">◷</span><span>Historial</span></button>
+      <button type="button" data-tab="chat"><span aria-hidden="true">◫</span><span>Chat Riwi</span></button>
+    </nav>
+    <main>
+      <p id="status" class="status" role="status">Cargando tu tablero…</p>
+      <div id="sources"></div>
+      <section id="check" aria-label="Hoy y checklist" hidden></section>
+      <section id="calendar" aria-label="Calendario Ritchie" hidden></section>
+      <section id="inbox" aria-label="Avisos" hidden></section>
+      <section id="history" aria-label="Historial" hidden></section>
+      <section id="chat" aria-label="Chat Riwi" hidden>
+        <h2 id="chat-title">Chat Riwi</h2>
+        <div id="chat-context"></div>
+        <div id="messages" class="messages" aria-live="polite"></div>
+        <form id="ask" class="card">
+          <label for="question">Tu pregunta</label>
+          <textarea id="question" maxlength="4000" required placeholder="Escribe tu pregunta sobre este día"></textarea>
+          <button id="send">Enviar pregunta</button>
+        </form>
+      </section>
+    </main>
+  </div>
+</body>
 </html>

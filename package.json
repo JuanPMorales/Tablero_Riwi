@@ -1,0 +1,8 @@
+{
+  "name": "tablero-riwi",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "24.x" },
+  "scripts": { "start": "node --env-file=.env server.mjs", "test": "node --test" },
+  "dependencies": { "@libsql/client": "0.17.4" }
+}
