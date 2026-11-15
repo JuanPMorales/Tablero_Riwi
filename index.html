@@ -12,14 +12,22 @@
     <div class="brand"><span class="brand-mark" aria-hidden="true">R</span><div><h1>Mi tablero Riwi</h1><small>Desarrollo de Software · Clan Ritchie</small></div></div>
     <div class="row"><a class="button outline" href="https://moodle.riwi.io/course/view.php?id=137" target="_blank" rel="noopener noreferrer">Moodle Riwi ↗</a><button id="logout" class="outline" type="button">Cerrar sesión</button></div>
   </header>
-  <div class="layout">
-    <nav aria-label="Secciones">
-      <button type="button" data-tab="check" aria-current="page"><span aria-hidden="true">✓</span><span>Hoy / Checklist</span></button>
-      <button type="button" data-tab="calendar"><span aria-hidden="true">▦</span><span>Calendario Ritchie</span></button>
-      <button type="button" data-tab="inbox"><span aria-hidden="true">▤</span><span>Avisos</span></button>
-      <button type="button" data-tab="history"><span aria-hidden="true">◷</span><span>Historial</span></button>
-      <button type="button" data-tab="chat"><span aria-hidden="true">◫</span><span>Chat Riwi</span></button>
-    </nav>
+  <div class="layout" id="layout">
+    <aside class="sidebar">
+      <div class="sidebar-inner">
+        <button class="menu-toggle" id="menu-toggle" type="button" aria-controls="sidebar-nav" aria-expanded="true">
+          <span class="menu-icon" aria-hidden="true">☰</span><span id="menu-label">Contraer menú</span>
+        </button>
+        <nav id="sidebar-nav" aria-label="Secciones">
+          <button type="button" data-tab="check" title="Hoy / Checklist" aria-current="page"><span class="menu-icon" aria-hidden="true">✓</span><span class="menu-text">Hoy / Checklist</span></button>
+          <button type="button" data-tab="calendar" title="Calendario Ritchie"><span class="menu-icon" aria-hidden="true">▦</span><span class="menu-text">Calendario Ritchie</span></button>
+          <button type="button" data-tab="inbox" title="Avisos"><span class="menu-icon" aria-hidden="true">◉</span><span class="menu-text">Avisos</span></button>
+          <button type="button" data-tab="history" title="Historial"><span class="menu-icon" aria-hidden="true">↺</span><span class="menu-text">Historial</span></button>
+          <button type="button" data-tab="chat" title="Chat Riwi"><span class="menu-icon" aria-hidden="true">⋯</span><span class="menu-text">Chat Riwi</span></button>
+        </nav>
+        <div class="sidebar-progress" id="sidebar-progress" hidden></div>
+      </div>
+    </aside>
     <main>
       <p id="status" class="status" role="status">Cargando tu tablero…</p>
       <div id="sources"></div>
@@ -37,22 +45,6 @@
             <input id="new-chat-title" maxlength="100" required>
             <button type="submit" class="secondary">Nueva conversación</button>
           </form>
-        </details>
-        <details class="card" id="tutor-settings">
-          <summary>Contexto y skills del tutor</summary>
-          <form id="tutor-form">
-            <label for="tutor-context">Mi contexto</label>
-            <textarea id="tutor-context" name="context" maxlength="4000" placeholder="Ejemplo: estoy aprendiendo JavaScript y necesito ejemplos para principiantes."></textarea>
-            <label for="tutor-skills">Skills que quiero que use</label>
-            <textarea id="tutor-skills" name="skills" maxlength="4000" placeholder="Ejemplo: revisar código, explicar métodos de arrays y proponer casos de prueba."></textarea>
-            <label for="tutor-limits">Qué debe evitar</label>
-            <textarea id="tutor-limits" name="limits" maxlength="3000" placeholder="Ejemplo: empezar con pistas y evitar entregar el código completo."></textarea>
-            <button type="submit">Guardar configuración</button>
-          </form>
-          <details>
-            <summary>Reglas base del proyecto</summary>
-            <p id="tutor-policy" class="copy"></p>
-          </details>
         </details>
         <div id="chat-context"></div>
         <details class="card" id="chat-connection">
@@ -83,7 +75,7 @@
               <label for="local-port">Puerto local</label>
               <input type="number" id="local-port" min="1" max="65535">
             </div>
-            <label id="usage-field" class="check"><input type="checkbox" id="usage-consent"> <span>Autorizo enviar al proveedor mi perfil del tutor, el contexto y el historial de este chat. Se usará mi cuota o saldo y pueden generarse cargos.</span></label>
+            <label id="usage-field" class="check"><input type="checkbox" id="usage-consent"> <span>Autorizo enviar al proveedor el contexto y el historial de este chat. Se usará mi cuota o saldo y pueden generarse cargos.</span></label>
             <div class="row"><button id="connect-model" type="submit">Conectar</button><button id="disconnect-model" type="button" class="secondary" hidden>Desconectar</button></div>
             <p id="connection-status" role="status" class="status"></p>
           </form>

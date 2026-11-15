@@ -277,10 +277,6 @@ export async function openStore(path, db = localDatabase(path)) {
       return { id, step, chat, title };
     }
     const findChat = chat => get('SELECT lesson AS id,step,title FROM account_threads WHERE account=? AND id=?', [account, chat]);
-    async function tutorProfile() {
-      const row = await get('SELECT value FROM settings WHERE key=?', [owner ? 'tutor-profile' : `${account}:tutor-profile`]);
-      return row ? JSON.parse(row.value) : { context: '', skills: '', limits: '' };
-    }
     function insertChat(id, step, prompt, answer) {
       const now = new Date().toISOString();
       return execute('INSERT INTO account_messages(account,lesson,step,role,content,created) VALUES(?,?,?,?,?,?),(?,?,?,?,?,?)',
@@ -305,7 +301,7 @@ export async function openStore(path, db = localDatabase(path)) {
       });
     }
     return { find, ticks, applyTicks, hasNotice, makeNotice, snapshot, chatHistory, chatRevision, deleteChat, saveChat, guideHistory, saveGuide,
-      listChats, createChat, findChat, tutorProfile, saveTutor: profile => setPersonal('tutor-profile', JSON.stringify(profile)),
+      listChats, createChat, findChat,
       focus: (id, step, chat) => setPersonal('chat-focus', JSON.stringify({ id, step, ...(chat ? { chat } : {}) })) };
   }
   function saveLesson(id, data) {

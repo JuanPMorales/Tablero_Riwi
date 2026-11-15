@@ -12,7 +12,8 @@ export function providerFault(status, message) {
   return Object.assign(new Error(message), { status });
 }
 
-export function cloudRequest(connection, turns, tutor = tutorPolicy) {
+export function cloudRequest(connection, turns) {
+  const tutor = tutorPolicy;
   const { provider, model, project, credential } = connection;
   if (typeof credential !== 'string' || !/^[\x21-\x7e]{12,4096}$/.test(credential)
     || typeof model !== 'string' || model.length > 120 || !/^[\w.:-]+(?:\/[\w.:-]+)?$/.test(model)) {
@@ -49,8 +50,8 @@ export function cloudRequest(connection, turns, tutor = tutorPolicy) {
   };
 }
 
-export async function cloudAnswer(connection, turns, tutor) {
-  const { url, headers, body, read } = cloudRequest(connection, turns, tutor);
+export async function cloudAnswer(connection, turns) {
+  const { url, headers, body, read } = cloudRequest(connection, turns);
   try {
     const response = await fetch(url, {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(24000),

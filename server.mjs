@@ -7,7 +7,7 @@ import { bogota, guidePrompt, keys, openStore } from './store.mjs';
 import { localAnswer, offlineGuide } from './guide.mjs';
 import { accountAuth, digest } from './auth.mjs';
 import { chatTurns, cloudAnswer } from './providers.mjs';
-import { tutorInstructions, tutorPolicy } from './tutor-policy.mjs';
+import { tutorPolicy } from './tutor-policy.mjs';
 
 const { RIWI_ORIGIN, RIWI_MOODLE_TOKEN, CRON_SECRET, RIWI_OWNER_ACCOUNT_ID, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
 const googleOAuth = GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET ? GOOGLE_CLIENT_ID : null;
@@ -183,7 +183,6 @@ async function request(req, res, pathname) {
     return json(res, 200, await state(store, canEdit));
   }
   if (req.method === 'GET' && path === '/api/chat/list') return json(res, 200, await store.listChats());
-  if (req.method === 'GET' && path === '/api/chat/tutor') return json(res, 200, { ...await store.tutorProfile(), policy: tutorPolicy });
   if (req.method === 'GET' && /^\/api\/chat\/\d+(\/[0-9]+-[0-9]+)?$/.test(path)) {
     const [, , , id, step = ''] = path.split('/');
     const lesson = await lessonFor(store, Number(id));
@@ -258,14 +257,6 @@ async function request(req, res, pathname) {
     else throw fault(400, 'Selecciona un estado de Moodle válido.');
     return json(res, 200, await state(store, canEdit));
   }
-  if (path === '/api/chat/tutor') {
-    const profile = Object.fromEntries(Object.entries({ context: 4000, skills: 4000, limits: 3000 }).map(([key, max]) => {
-      if (!text(p[key], max, true)) throw fault(400, 'Revisa la longitud del contexto, las skills y los límites.');
-      return [key, p[key].trim()];
-    }));
-    await store.saveTutor(profile);
-    return json(res, 200, { instructions: tutorInstructions(profile) });
-  }
   if (['/api/focus', '/api/chat', '/api/chat/delete', '/api/chat/new'].includes(path)) {
     const lesson = await lessonFor(store, p.id);
     const step = p.step ?? '';
@@ -285,7 +276,7 @@ async function request(req, res, pathname) {
       await store.focus(lesson.id, step, p.chat);
       const revision = await store.chatRevision(lesson.id, threadStep);
       return json(res, 200, { history: await store.chatHistory(lesson.id, threadStep), revision,
-        ...(chat ? { title: chat.title } : {}), instructions: tutorInstructions(await store.tutorProfile()) });
+        ...(chat ? { title: chat.title } : {}) });
     }
     if (path === '/api/chat/delete') return json(res, 200, { revision: await store.deleteChat(lesson.id, threadStep, p.chat) });
     const revision = await store.chatRevision(lesson.id, threadStep);
@@ -319,17 +310,16 @@ async function request(req, res, pathname) {
           quest: quest ? { number: i + 1, title: quest[0], context: quest[1], ...quest[3] } : quests.map(q => q[0]),
           step: quest ? { number: j + 1, instruction: quest[2][j] } : null, marks: [...await store.ticks(lesson.id)] };
         const history = await store.chatHistory(lesson.id, threadStep);
-        const tutor = tutorInstructions(await store.tutorProfile());
         if (p.connection) {
           if (typeof p.connection !== 'object' || p.connection.allowCharges !== true) {
             throw fault(400, 'Confirma el uso de la cuota de tu proveedor antes de enviar la consulta.');
           }
-          answer = await cloudAnswer(p.connection, chatTurns(context, history, prompt), tutor);
+          answer = await cloudAnswer(p.connection, chatTurns(context, history, prompt));
         } else {
           const controller = new AbortController();
           res.once?.('close', () => controller.abort());
           try {
-            answer = await localAnswer(RIWI_OLLAMA_MODEL, chatTurns(context, history, prompt), tutor, Boolean(guide), controller.signal);
+            answer = await localAnswer(RIWI_OLLAMA_MODEL, chatTurns(context, history, prompt), tutorPolicy, Boolean(guide), controller.signal);
           } catch {
             if (controller.signal.aborted) return;
             if (!guide) throw fault(503, 'El modelo local no respondió. Revisa Ollama e inténtalo de nuevo.');

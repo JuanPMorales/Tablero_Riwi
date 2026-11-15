@@ -1,5 +1,36 @@
 const $ = id => document.getElementById(id);
-const tabs = [...document.querySelectorAll('nav button')];
+const tabs = [...document.querySelectorAll('#sidebar-nav [data-tab]')];
+const mobileMenu = matchMedia('(max-width: 730px)');
+const menuToggle = $('menu-toggle');
+let desktopMenuCollapsed = false;
+let mobileMenuOpen = false;
+
+function updateMenu() {
+  const expanded = mobileMenu.matches ? mobileMenuOpen : !desktopMenuCollapsed;
+  $('layout').classList.toggle('menu-compact', !mobileMenu.matches && desktopMenuCollapsed);
+  $('layout').classList.toggle('menu-open', mobileMenu.matches && mobileMenuOpen);
+  menuToggle.setAttribute('aria-expanded', String(expanded));
+  $('menu-label').textContent = expanded ? (mobileMenu.matches ? 'Cerrar menú' : 'Contraer menú') : 'Abrir menú';
+  menuToggle.setAttribute('aria-label', $('menu-label').textContent);
+  menuToggle.title = $('menu-label').textContent;
+}
+menuToggle.onclick = () => {
+  if (mobileMenu.matches) mobileMenuOpen = !mobileMenuOpen;
+  else desktopMenuCollapsed = !desktopMenuCollapsed;
+  updateMenu();
+};
+mobileMenu.addEventListener('change', () => {
+  if (mobileMenu.matches && $('sidebar-nav').contains(document.activeElement)) menuToggle.focus();
+  mobileMenuOpen = false;
+  updateMenu();
+});
+$('layout').addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || !mobileMenuOpen) return;
+  mobileMenuOpen = false;
+  updateMenu();
+  menuToggle.focus();
+});
+updateMenu();
 const el = (tag, text, cls) => {
   const node = document.createElement(tag);
   if (text != null) node.textContent = text;
@@ -49,7 +80,7 @@ async function api(path, data, signal) {
 }
 
 let state, selected, focus, week, pending = false, chatPending = false, chatLoad = 0;
-let connection, googlePending, threadHistory = [], threadRevision, ollamaRequest, localTutor;
+let connection, googlePending, threadHistory = [], threadRevision, ollamaRequest;
 let activeTab = 'check';
 let mutationQueue = Promise.resolve();
 $('logout').onclick = async () => {
@@ -103,11 +134,18 @@ function cursorLabel(cursor, day) {
 }
 function show(tab) {
   activeTab = tab;
+  const returnFocus = mobileMenu.matches && mobileMenuOpen && $('sidebar-nav').contains(document.activeElement);
+  mobileMenuOpen = false;
   for (const item of tabs) {
     const current = item.dataset.tab === tab;
     if (current) item.setAttribute('aria-current', 'page');
     else item.removeAttribute('aria-current');
     $(item.dataset.tab).hidden = !current;
+  }
+  updateMenu();
+  if (returnFocus) {
+    $(tab).tabIndex = -1;
+    $(tab).focus({ preventScroll: true });
   }
   if (state && tab === 'chat') openChat(focus || { id: selected, step: '' }, false);
   window.scrollTo(0, 0);
@@ -645,7 +683,7 @@ $('model-form').onsubmit = async event => {
 };
 updateConnectionForm();
 
-async function askLocal(modelConnection, data, history, instructions, signal) {
+async function askLocal(modelConnection, data, history, signal) {
   const { provider, port, model } = modelConnection;
   const base = `http://127.0.0.1:${port}`;
   const day = lesson(data.id);
@@ -656,7 +694,7 @@ async function askLocal(modelConnection, data, history, instructions, signal) {
     ...(quest ? { quest: quest[0], context: quest[1], instruction: quest[2][j], requirements: quest[3] } : {}),
     stepsDone: completed(day).count };
   const prompt = data.guide ? 'Guíame en este paso con un ejemplo y una prueba.' : data.message;
-  const messages = [{ role: 'system', content: instructions },
+  const messages = [{ role: 'system', content: 'Ayuda con el ejercicio de Riwi en español. Explica los pasos con ejemplos pequeños y formas de comprobar el resultado.' },
     { role: 'user', content: JSON.stringify(context) }, ...history.slice(-10).map(({ role, content }) => ({ role, content: content.slice(0, 4000) })),
     { role: 'user', content: prompt }];
   const ollama = provider === 'ollama';
@@ -711,34 +749,6 @@ $('new-chat-form').onsubmit = async event => {
     submit.disabled = false;
   }
 };
-const tutorForm = $('tutor-form');
-tutorForm.querySelector('button').disabled = true;
-$('tutor-settings').ontoggle = async event => {
-  if (!event.target.open || tutorForm.dataset.loaded) return;
-  try {
-    const profile = await api('/api/chat/tutor');
-    for (const name of ['context', 'skills', 'limits']) tutorForm.elements[name].value = profile[name];
-    $('tutor-policy').textContent = profile.policy;
-    tutorForm.dataset.loaded = 'true';
-    tutorForm.querySelector('button').disabled = false;
-  } catch (error) {
-    status(error.message, true);
-  }
-};
-tutorForm.onsubmit = async event => {
-  event.preventDefault();
-  const submit = tutorForm.querySelector('button');
-  submit.disabled = true;
-  try {
-    const result = await api('/api/chat/tutor', Object.fromEntries(new FormData(tutorForm)));
-    localTutor = result.instructions;
-    status('Configuración del tutor guardada.');
-  } catch (error) {
-    status(error.message, true);
-  } finally {
-    submit.disabled = false;
-  }
-};
 async function openChat(selection, guide) {
   const day = lesson(selection?.id);
   if (!day) return;
@@ -768,7 +778,6 @@ async function openChat(selection, guide) {
     if (stamp !== chatLoad) return;
     if (result.title) $('chat-title').textContent = result.title;
     threadRevision = result.revision ?? 0;
-    localTutor = result.instructions;
     renderMessages(result.history);
     if (quest && !selection.chat && (guide || !result.history.length)) await sendChat({ ...selection, guide: true, basic: true }, false);
   } catch (error) {
@@ -780,7 +789,6 @@ async function sendChat(data, useConnection = true) {
   if (chatPending || threadRevision === undefined) return;
   data = { ...data, revision: threadRevision };
   const previousMessages = threadHistory;
-  const instructions = localTutor;
   chatPending = true;
   const active = useConnection ? connection : undefined;
   const controller = active?.provider === 'ollama' || (!active && state.chatReady && !data.basic) ? new AbortController() : undefined;
@@ -804,7 +812,7 @@ async function sendChat(data, useConnection = true) {
       disconnect();
       throw new Error('La sesión de Google venció. Vuelve a conectar.');
     }
-    if (active && localProvider(active.provider)) data = { ...data, localAnswer: await askLocal(active, data, previousMessages, instructions, controller?.signal) };
+    if (active && localProvider(active.provider)) data = { ...data, localAnswer: await askLocal(active, data, previousMessages, controller?.signal) };
     else if (active) data = { ...data, connection: active };
     const history = await api('/api/chat', data, controller?.signal);
     if (sameChat(focus, data)) {
@@ -852,6 +860,17 @@ $('ask').onsubmit = event => {
   if (focus && (connection || state.chatReady)) sendChat({ ...focus, message: $('question').value });
 };
 function render() {
+  const day = lesson(state.resume?.id ?? selected);
+  const sidebar = $('sidebar-progress');
+  const progress = day && completed(day);
+  sidebar.hidden = !progress?.total;
+  if (progress?.total) {
+    const meter = el('progress');
+    meter.setAttribute('aria-label', 'Avance del día');
+    meter.max = progress.total;
+    meter.value = progress.count;
+    sidebar.replaceChildren(el('strong', 'Avance del día'), meter, el('small', `${progress.count} de ${progress.total} pasos`));
+  }
   renderSources();
   renderCheck();
   renderCalendar();
