@@ -15,10 +15,15 @@ export function providerFault(status, message) {
 export function cloudRequest(connection, turns) {
   const { provider, model, project, credential } = connection;
   if (typeof credential !== 'string' || !/^[\x21-\x7e]{12,4096}$/.test(credential)
-    || typeof model !== 'string' || !/^[\w.:-]{1,120}$/.test(model)) {
+    || typeof model !== 'string' || model.length > 120 || !/^[\w.:-]+(?:\/[\w.:-]+)?$/.test(model)) {
     throw providerFault(400, 'Revisa el modelo y la credencial del proveedor.');
   }
   const bearer = { Authorization: `Bearer ${credential}` };
+  if (provider === 'groq') return {
+    url: 'https://api.groq.com/openai/v1/chat/completions', headers: bearer,
+    body: { model, max_completion_tokens: 1200, messages: [{ role: 'system', content: tutor }, ...turns] },
+    read: data => data.choices?.[0]?.message?.content,
+  };
   if (provider === 'openai') return {
     url: 'https://api.openai.com/v1/responses', headers: bearer,
     body: { model, store: false, max_output_tokens: 1800, instructions: tutor, input: turns },

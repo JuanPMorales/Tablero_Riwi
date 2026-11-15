@@ -49,14 +49,14 @@ export function offlineGuide(lesson, step) {
   ].join('\n\n');
 }
 
-export async function localAnswer(model, turns, tutor, isGuide = false) {
+export async function localAnswer(model, turns, tutor, isGuide = false, signal) {
   const base = 'http://127.0.0.1:11434';
   const response = await fetch(base + '/api/tags', { signal: AbortSignal.timeout(2500), redirect: 'error' });
   if (!response.ok || !(await response.json()).models?.some(item => item.name === model && !item.remote_model && !item.remote_host)) {
     throw new Error('El modelo local configurado no está disponible.');
   }
   const result = await fetch(base + '/api/chat', {
-    method: 'POST', redirect: 'error', signal: AbortSignal.timeout(180000),
+    method: 'POST', redirect: 'error', signal,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model, stream: false, think: false, options: { num_predict: isGuide ? 600 : 320, num_ctx: 8192 },

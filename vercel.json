@@ -23,6 +23,7 @@
     { "source": "/api/session", "destination": "/api/tablero?path=/api/session" },
     { "source": "/api/moodle", "destination": "/api/tablero?path=/api/moodle" },
     { "source": "/api/focus", "destination": "/api/tablero?path=/api/focus" },
+    { "source": "/api/chat/delete", "destination": "/api/tablero?path=/api/chat/delete" },
     { "source": "/api/chat/:thread*", "destination": "/api/tablero?path=/api/chat/:thread*" },
     { "source": "/api/chat", "destination": "/api/tablero?path=/api/chat" }
   ],

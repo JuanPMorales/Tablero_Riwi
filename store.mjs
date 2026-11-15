@@ -51,6 +51,10 @@ const schema = `
     role TEXT NOT NULL, content TEXT NOT NULL, created TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS messages_thread ON account_messages(account,lesson,step,id);
+  CREATE TABLE IF NOT EXISTS chat_revisions (
+    account TEXT NOT NULL, lesson INTEGER NOT NULL, step TEXT NOT NULL, revision INTEGER NOT NULL,
+    PRIMARY KEY(account,lesson,step)
+  );
   CREATE TABLE IF NOT EXISTS account_daily (
     account TEXT NOT NULL, date TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(account,date)
   );
@@ -236,22 +240,44 @@ export async function openStore(path, db = localDatabase(path)) {
       if (step || !owner) return recent;
       return [...await all('SELECT role,content,NULL AS created FROM chat WHERE lesson=? ORDER BY id', [id]), ...recent];
     }
-    function saveChat(id, step, prompt, answer) {
+    const chatRevision = async (id, step) => (await get(
+      'SELECT revision FROM chat_revisions WHERE account=? AND lesson=? AND step=?', [account, id, step]))?.revision ?? 0;
+    function deleteChat(id, step) {
+      return transaction(async () => {
+        await execute('DELETE FROM account_messages WHERE account=? AND lesson=? AND step=?', [account, id, step]);
+        if (owner) {
+          await execute('DELETE FROM messages WHERE lesson=? AND step=?', [id, step]);
+          if (!step) await execute('DELETE FROM chat WHERE lesson=?', [id]);
+        }
+        await execute(`INSERT INTO chat_revisions VALUES (?,?,?,1)
+          ON CONFLICT(account,lesson,step) DO UPDATE SET revision=revision+1`, [account, id, step]);
+        return chatRevision(id, step);
+      });
+    }
+    function insertChat(id, step, prompt, answer) {
       const now = new Date().toISOString();
       return execute('INSERT INTO account_messages(account,lesson,step,role,content,created) VALUES(?,?,?,?,?,?),(?,?,?,?,?,?)',
         [account, id, step, 'user', prompt, now, account, id, step, 'assistant', answer, now]);
+    }
+    function saveChat(id, step, prompt, answer, revision) {
+      return transaction(async () => {
+        if (revision !== await chatRevision(id, step)) return null;
+        await insertChat(id, step, prompt, answer);
+        return chatHistory(id, step);
+      });
     }
     async function guideHistory(id, step, basic) {
       const history = await chatHistory(id, step);
       return savedGuide(history, basic) ? history : null;
     }
-    function saveGuide(id, step, basic, answer) {
+    function saveGuide(id, step, basic, answer, revision) {
       return transaction(async () => {
-        if (!await guideHistory(id, step, basic)) await saveChat(id, step, guidePrompt, answer);
+        if (revision !== await chatRevision(id, step)) return null;
+        if (!await guideHistory(id, step, basic)) await insertChat(id, step, guidePrompt, answer);
         return chatHistory(id, step);
       });
     }
-    return { find, ticks, applyTicks, hasNotice, makeNotice, snapshot, chatHistory, saveChat, guideHistory, saveGuide,
+    return { find, ticks, applyTicks, hasNotice, makeNotice, snapshot, chatHistory, chatRevision, deleteChat, saveChat, guideHistory, saveGuide,
       focus: (id, step) => setPersonal('chat-focus', JSON.stringify({ id, step })) };
   }
   function saveLesson(id, data) {

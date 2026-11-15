@@ -63,6 +63,7 @@ En **Chat Riwi → Conectar un modelo**, escoge el proveedor y escribe el identi
 
 | Conexión | Qué necesita |
 |---|---|
+| Groq | Clave de [Groq Console](https://console.groq.com/keys). El plan gratuito tiene [cuotas](https://console.groq.com/docs/rate-limits) y admite `openai/gpt-oss-20b`. |
 | Gemini | Clave personal de [Google AI Studio](https://aistudio.google.com/apikey). |
 | Google Cloud | Inicio de sesión con Google e ID de un proyecto con la API de Vertex AI habilitada y permisos para generar contenido. |
 | OpenAI | Una clave de la [plataforma API](https://platform.openai.com/api-keys). El [inicio de sesión con el plan de ChatGPT](https://developers.openai.com/siwc/quickstart) requiere habilitación de OpenAI para una app alojada. |
@@ -74,7 +75,9 @@ Para activar Google, crea un cliente OAuth de tipo **Aplicación web** en Google
 
 Para Ollama, mantén el servicio en loopback, activa `OLLAMA_NO_CLOUD=1`, configura `OLLAMA_ORIGINS` con el origen exacto del tablero y reinicia Ollama. En un agente compatible configura CORS para ese mismo origen. Si el navegador solicita permiso de red local, concédelo al conectar. La conexión llega al servicio instalado en el dispositivo que tiene abierto el navegador. Puedes mantener el modo anterior `RIWI_OLLAMA_MODEL` si ejecutas Node y Ollama directamente en el mismo equipo.
 
-El tablero comprueba que Ollama tenga el modelo local antes de conectarlo. Solicita respuestas sin razonamiento visible, limita la generación a 320 tokens para preguntas y 600 para guías y permite hasta tres minutos para responder. Si aparece un mensaje de tiempo agotado, Ollama ya recibió la consulta. Prueba con una pregunta más corta.
+El tablero comprueba que Ollama tenga el modelo local antes de conectarlo. Solicita respuestas sin razonamiento visible y limita la generación a 320 tokens para preguntas y 600 para guías. Mantén la pestaña abierta durante la generación. El tablero espera a Ollama sin imponer un límite de tiempo y permite detener la solicitud con **Cancelar respuesta**.
+
+**Eliminar conversación** borra los mensajes y las guías guardadas del chat del día o del paso abierto, según el hilo seleccionado. El progreso del checklist y las demás conversaciones se conservan.
 
 ### Solicitud de acceso a ChatGPT Plus
 

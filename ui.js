@@ -31,10 +31,10 @@ function status(text, error = false) {
   $('status').textContent = text;
   $('status').toggleAttribute('data-error', error);
 }
-async function api(path, data) {
-  const response = await fetch(path, data === undefined ? {} : {
+async function api(path, data, signal) {
+  const response = await fetch(path, { signal, ...(data === undefined ? {} : {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
-  });
+  }) });
   if (response.status === 401) {
     location.replace('/login');
     throw new Error('Vuelve a iniciar sesión en el tablero.');
@@ -46,11 +46,12 @@ async function api(path, data) {
 }
 
 let state, selected, focus, week, pending = false, chatPending = false, chatLoad = 0;
-let connection, googlePending, threadHistory = [];
+let connection, googlePending, threadHistory = [], threadRevision, ollamaRequest;
 let activeTab = 'check';
 let mutationQueue = Promise.resolve();
 $('logout').onclick = async () => {
   try {
+    ollamaRequest?.abort();
     disconnect();
     await mutationQueue;
     await api('/api/auth/logout', {});
@@ -454,9 +455,14 @@ function renderMessages(history) {
   threadHistory = history;
   $('messages').replaceChildren(...history.map(row => box('article', 'card msg ' + row.role,
     el('p', row.role === 'user' ? 'Tú' : 'Asistente Riwi', 'message-role'), el('div', row.content))));
+  chatControls();
 }
 const connectWithKey = 'Pega la clave en este formulario, confirma el uso de tu cuota y pulsa Conectar. Envía una pregunta nueva para probar.';
 const modelOptions = {
+  groq: ['openai/gpt-oss-20b', [
+    ['Crea una clave en Groq Console y mantén tu cuenta en el plan gratuito.', 'https://console.groq.com/keys'],
+    'Usa openai/gpt-oss-20b o escribe otro modelo disponible en tu cuenta.', connectWithKey,
+  ]],
   gemini: ['gemini-3.8-flash', [
     ['Crea una clave en Google AI Studio.', 'https://aistudio.google.com/apikey'],
     'Escribe el ID de un modelo disponible en tu proyecto de AI Studio.', connectWithKey,
@@ -515,7 +521,10 @@ function updateConnectionForm() {
 }
 function chatControls() {
   const ready = Boolean(connection || state?.chatReady);
-  $('send').disabled = !ready || chatPending;
+  $('send').disabled = !ready || threadRevision === undefined || chatPending;
+  $('cancel-chat').hidden = !ollamaRequest;
+  $('delete-chat').hidden = !threadHistory.length;
+  $('delete-chat').disabled = chatPending;
   $('disconnect-model').hidden = !connection && !googlePending;
   $('active-model').textContent = connection ? `Modelo activo · ${connection.model}`
     : state?.chatReady ? 'Modelo activo · Ollama del servidor' : 'Conecta un modelo para enviar preguntas.';
@@ -528,11 +537,12 @@ function connect(modelConnection) {
 }
 
 const localRequestOptions = { redirect: 'error', credentials: 'omit', targetAddressSpace: 'loopback' };
-async function checkOllama(model) {
+async function checkOllama(model, signal) {
   let tags;
+  const probeTimeout = AbortSignal.timeout(10000);
   try {
     const response = await fetch('http://127.0.0.1:11434/api/tags', {
-      ...localRequestOptions, signal: AbortSignal.timeout(10000),
+      ...localRequestOptions, signal: signal ? AbortSignal.any([signal, probeTimeout]) : probeTimeout,
     });
     if (response.ok) tags = await response.json();
   } catch {
@@ -599,7 +609,7 @@ $('model-form').onsubmit = async event => {
   const model = $('model').value.trim();
   const project = $('project').value.trim();
   const credential = $('credential').value.trim();
-  if (!/^[\w.:-]{1,120}$/.test(model)) return connectionStatus('Escribe el nombre exacto del modelo o agente.', true);
+  if (model.length > 120 || !/^[\w.:-]+(?:\/[\w.:-]+)?$/.test(model)) return connectionStatus('Escribe el nombre exacto del modelo o agente.', true);
   if (provider === 'google-cloud' && !/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(project)) {
     return connectionStatus('Escribe un ID de proyecto de Google Cloud válido.', true);
   }
@@ -629,7 +639,7 @@ $('model-form').onsubmit = async event => {
 };
 updateConnectionForm();
 
-async function askLocal(modelConnection, data) {
+async function askLocal(modelConnection, data, history, signal) {
   const { provider, port, model } = modelConnection;
   const base = `http://127.0.0.1:${port}`;
   const day = lesson(data.id);
@@ -641,13 +651,13 @@ async function askLocal(modelConnection, data) {
     stepsDone: completed(day).count };
   const prompt = data.guide ? 'Guíame en este paso con un ejemplo y una prueba.' : data.message;
   const messages = [{ role: 'system', content: 'Eres tutor de Riwi en español. Usa la tecnología indicada. Para las guías, explica qué hacer, los pasos, un ejemplo y cómo comprobarlo.' },
-    { role: 'user', content: JSON.stringify(context) }, ...threadHistory.slice(-10).map(({ role, content }) => ({ role, content: content.slice(0, 4000) })),
+    { role: 'user', content: JSON.stringify(context) }, ...history.slice(-10).map(({ role, content }) => ({ role, content: content.slice(0, 4000) })),
     { role: 'user', content: prompt }];
   const ollama = provider === 'ollama';
-  if (ollama) await checkOllama(model);
+  if (ollama) await checkOllama(model, signal);
   try {
     const response = await fetch(base + (ollama ? '/api/chat' : '/v1/chat/completions'), {
-      ...localRequestOptions, signal: AbortSignal.timeout(ollama ? 180000 : 90000),
+      ...localRequestOptions, signal: ollama ? signal : AbortSignal.timeout(90000),
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, messages, stream: false,
         ...(ollama ? { think: false, options: { num_predict: data.guide ? 600 : 320 } } : { max_tokens: 1000 }) }) });
     if (!response.ok) throw new Error('El servicio local recibió la consulta y devolvió un error. Revisa el registro del modelo e inténtalo de nuevo.');
@@ -679,11 +689,13 @@ async function openChat(selection, guide) {
       ...(selected !== day.id ? [button('Chat del checklist seleccionado', () => openChat({ id: selected, step: '' }, false), 'secondary')] : [])),
     el('small', 'Puedes usar la guía del tablero o conectar un modelo para generar guías y conversar aquí.')));
   threadHistory = [];
+  threadRevision = undefined;
   $('messages').replaceChildren(el('p', 'Cargando conversación…'));
   chatControls();
   try {
     const result = await api('/api/focus', selection);
     if (stamp !== chatLoad) return;
+    threadRevision = result.revision ?? 0;
     renderMessages(result.history);
     if (quest && (guide || !result.history.length)) await sendChat({ ...selection, guide: true, basic: true }, false);
   } catch (error) {
@@ -691,14 +703,18 @@ async function openChat(selection, guide) {
   }
 }
 async function sendChat(data, useConnection = true) {
-  if (chatPending) return;
+  if (chatPending || threadRevision === undefined) return;
+  data = { ...data, revision: threadRevision };
+  const previousMessages = threadHistory;
   chatPending = true;
-  $('send').disabled = true;
+  const active = useConnection ? connection : undefined;
+  const controller = active?.provider === 'ollama' || (!active && state.chatReady && !data.basic) ? new AbortController() : undefined;
+  ollamaRequest = controller;
+  chatControls();
   status('Preparando respuesta…');
   try {
-    const active = useConnection ? connection : undefined;
     if (data.guide && useConnection) {
-      const saved = await api('/api/chat', { ...data, lookup: true });
+      const saved = await api('/api/chat', { ...data, lookup: true }, controller?.signal);
       if (saved) {
         if (focus?.id === data.id && focus?.step === data.step) renderMessages(saved);
         status('Guía guardada cargada.');
@@ -713,19 +729,41 @@ async function sendChat(data, useConnection = true) {
       disconnect();
       throw new Error('La sesión de Google venció. Vuelve a conectar.');
     }
-    if (active && localProvider(active.provider)) data = { ...data, localAnswer: await askLocal(active, data) };
+    if (active && localProvider(active.provider)) data = { ...data, localAnswer: await askLocal(active, data, previousMessages, controller?.signal) };
     else if (active) data = { ...data, connection: active };
-    const history = await api('/api/chat', data);
+    const history = await api('/api/chat', data, controller?.signal);
     if (focus?.id === data.id && focus?.step === data.step) renderMessages(history);
     if (!data.guide && focus?.id === data.id && focus?.step === data.step) $('question').value = '';
     status('Conversación guardada.');
+  } catch (error) {
+    if (controller?.signal.aborted) status('Respuesta cancelada.');
+    else status(error.message, true);
+  } finally {
+    ollamaRequest = undefined;
+    chatPending = false;
+    chatControls();
+  }
+}
+$('cancel-chat').onclick = () => ollamaRequest?.abort();
+$('delete-chat').onclick = async () => {
+  if (chatPending || !threadHistory.length || !window.confirm('¿Eliminar esta conversación y sus guías guardadas?')) return;
+  const selection = focus;
+  chatPending = true;
+  chatControls();
+  try {
+    const result = await api('/api/chat/delete', selection);
+    if (focus === selection) {
+      threadRevision = result.revision;
+      renderMessages([]);
+    }
+    status('Conversación eliminada.');
   } catch (error) {
     status(error.message, true);
   } finally {
     chatPending = false;
     chatControls();
   }
-}
+};
 $('ask').onsubmit = event => {
   event.preventDefault();
   if (focus && (connection || state.chatReady)) sendChat({ ...focus, message: $('question').value });

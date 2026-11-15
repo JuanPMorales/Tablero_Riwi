@@ -211,13 +211,14 @@ test('el chat usa la credencial solo con el proveedor y conserva el hilo sin gua
   const message = 'Explícame el enfoque';
   const originalFetch = globalThis.fetch;
   const vendors = [
+    ['groq', 'https://api.groq.com/openai/v1/chat/completions', { choices: [{ message: { content: credential } }] }],
     ['openai', 'https://api.openai.com/v1/responses', { output: [{ content: [{ type: 'output_text', text: credential }] }] }],
     ['claude', 'https://api.anthropic.com/v1/messages', { content: [{ type: 'text', text: credential }] }],
     ['gemini', 'https://generativelanguage.googleapis.com/v1beta/models/fixture:generateContent', { candidates: [{ content: { parts: [{ text: credential }] } }] }],
     ['google-cloud', 'https://aiplatform.googleapis.com/v1/projects/fixture-project/locations/global/publishers/google/models/fixture:generateContent', { candidates: [{ content: { parts: [{ text: credential }] } }] }],
   ];
   for (const [provider, endpoint, response] of vendors) {
-    const connection = { provider, credential, model: 'fixture', project: 'fixture-project' };
+    const connection = { provider, credential, model: provider === 'groq' ? 'openai/gpt-oss-20b' : 'fixture', project: 'fixture-project' };
     assert.equal((await call('/api/chat', { id: 1, message, connection })).status, 400);
     const calls = [];
     globalThis.fetch = async (url, options) => {
@@ -252,6 +253,7 @@ test('Ollama solicita una respuesta directa y usa un límite distinto para las g
   globalThis.fetch = async (url, options) => {
     if (url.endsWith('/api/tags')) return Response.json({ models: [{ name: 'qwen3.5:4b' }] });
     assert.equal(url, 'http://127.0.0.1:11434/api/chat');
+    assert.equal(options.signal, undefined);
     requests.push(JSON.parse(options.body));
     return Response.json({ message: { content: '¡Hola!' } });
   };
@@ -263,6 +265,20 @@ test('Ollama solicita una respuesta directa y usa un límite distinto para las g
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('elimina un hilo y bloquea respuestas tardías de la misma conversación', async () => {
+  const selection = { id: 1, step: '2-6' };
+  await call('/api/chat', { ...selection, message: 'Hola', localAnswer: 'Hola', revision: 0 });
+  const focus = await call('/api/focus', selection);
+  assert.equal(focus.json.history.length, 2);
+  assert.equal((await call('/api/chat/delete', selection, { auth: false })).status, 401);
+  const deletion = await call('/api/chat/delete', selection);
+  assert.equal(deletion.json.revision, focus.json.revision + 1);
+  assert.deepEqual((await call('/api/chat/1/2-6')).json, []);
+  assert.equal((await call('/api/chat', { ...selection, message: 'Hola', localAnswer: 'Tarde', revision: focus.json.revision })).status, 409);
+  assert.ok((await call('/api/chat/1/2-3')).json.length);
+  assert.equal((await call('/api/chat', { ...selection, message: 'Nuevo hilo', localAnswer: 'Hola', revision: deletion.json.revision })).status, 200);
 });
 
 test('Google intercambia el código con PKCE y devuelve solo el acceso temporal', async () => {

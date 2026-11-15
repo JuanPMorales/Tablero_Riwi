@@ -255,14 +255,19 @@ async function request(req, res, pathname) {
     else throw fault(400, 'Selecciona un estado de Moodle válido.');
     return json(res, 200, await state(store, canEdit));
   }
-  if (path === '/api/focus' || path === '/api/chat') {
+  if (['/api/focus', '/api/chat', '/api/chat/delete'].includes(path)) {
     const lesson = await lessonFor(store, p.id);
     const step = p.step ?? '';
     if (typeof step !== 'string' || (step && !keys(lesson).includes(step))) throw fault(404, 'Paso no encontrado.');
     if (path === '/api/focus') {
       await store.focus(lesson.id, step);
-      return json(res, 200, { history: await store.chatHistory(lesson.id, step) });
+      const revision = await store.chatRevision(lesson.id, step);
+      return json(res, 200, { history: await store.chatHistory(lesson.id, step), revision });
     }
+    if (path === '/api/chat/delete') return json(res, 200, { revision: await store.deleteChat(lesson.id, step) });
+    const revision = await store.chatRevision(lesson.id, step);
+    const deleted = () => fault(409, 'La conversación se eliminó o cambió. Vuelve a abrirla antes de enviar otra consulta.');
+    if (p.revision !== undefined && p.revision !== revision) throw deleted();
     const guide = p.guide === true && step;
     const basic = p.basic === true || (!p.connection && p.localAnswer === undefined && !RIWI_OLLAMA_MODEL && p.lookup !== true);
     if (guide) {
@@ -297,18 +302,22 @@ async function request(req, res, pathname) {
           }
           answer = await cloudAnswer(p.connection, chatTurns(context, history, prompt));
         } else {
+          const controller = new AbortController();
+          res.once?.('close', () => controller.abort());
           try {
-            answer = await localAnswer(RIWI_OLLAMA_MODEL, chatTurns(context, history, prompt), tutor, Boolean(guide));
+            answer = await localAnswer(RIWI_OLLAMA_MODEL, chatTurns(context, history, prompt), tutor, Boolean(guide), controller.signal);
           } catch {
+            if (controller.signal.aborted) return;
             if (!guide) throw fault(503, 'El modelo local no respondió. Revisa Ollama e inténtalo de nuevo.');
           }
         }
       }
       const usedBasic = !answer;
       answer = usedBasic ? 'Guía del tablero\n\n' + offlineGuide(lesson, step) : 'Respuesta de IA\n\n' + answer;
-      if (guide) return json(res, 200, await store.saveGuide(lesson.id, step, usedBasic, answer));
-      await store.saveChat(lesson.id, step, prompt, answer);
-      return json(res, 200, await store.chatHistory(lesson.id, step));
+      const saved = guide ? await store.saveGuide(lesson.id, step, usedBasic, answer, revision)
+        : await store.saveChat(lesson.id, step, prompt, answer, revision);
+      if (!saved) throw deleted();
+      return json(res, 200, saved);
     } finally {
       busy.delete(thread);
     }
