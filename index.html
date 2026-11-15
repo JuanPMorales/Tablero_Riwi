@@ -29,6 +29,31 @@
       <section id="history" aria-label="Historial" hidden></section>
       <section id="chat" aria-label="Chat Riwi" hidden>
         <h2 id="chat-title">Chat Riwi</h2>
+        <details class="card" open>
+          <summary>Conversaciones</summary>
+          <ul id="chat-list" aria-label="Conversaciones guardadas"></ul>
+          <form id="new-chat-form">
+            <label for="new-chat-title">Título de la nueva conversación</label>
+            <input id="new-chat-title" maxlength="100" required>
+            <button type="submit" class="secondary">Nueva conversación</button>
+          </form>
+        </details>
+        <details class="card" id="tutor-settings">
+          <summary>Contexto y skills del tutor</summary>
+          <form id="tutor-form">
+            <label for="tutor-context">Mi contexto</label>
+            <textarea id="tutor-context" name="context" maxlength="4000" placeholder="Ejemplo: estoy aprendiendo JavaScript y necesito ejemplos para principiantes."></textarea>
+            <label for="tutor-skills">Skills que quiero que use</label>
+            <textarea id="tutor-skills" name="skills" maxlength="4000" placeholder="Ejemplo: revisar código, explicar métodos de arrays y proponer casos de prueba."></textarea>
+            <label for="tutor-limits">Qué debe evitar</label>
+            <textarea id="tutor-limits" name="limits" maxlength="3000" placeholder="Ejemplo: empezar con pistas y evitar entregar el código completo."></textarea>
+            <button type="submit">Guardar configuración</button>
+          </form>
+          <details>
+            <summary>Reglas base del proyecto</summary>
+            <p id="tutor-policy" class="copy"></p>
+          </details>
+        </details>
         <div id="chat-context"></div>
         <details class="card" id="chat-connection">
           <summary>Conectar un modelo</summary>
@@ -58,18 +83,10 @@
               <label for="local-port">Puerto local</label>
               <input type="number" id="local-port" min="1" max="65535">
             </div>
-            <label id="usage-field" class="check"><input type="checkbox" id="usage-consent"> <span>Autorizo enviar el contexto y el historial de este chat al proveedor y usar mi cuota o saldo. Mi proveedor puede generar cargos.</span></label>
+            <label id="usage-field" class="check"><input type="checkbox" id="usage-consent"> <span>Autorizo enviar al proveedor mi perfil del tutor, el contexto y el historial de este chat. Se usará mi cuota o saldo y pueden generarse cargos.</span></label>
             <div class="row"><button id="connect-model" type="submit">Conectar</button><button id="disconnect-model" type="button" class="secondary" hidden>Desconectar</button></div>
             <p id="connection-status" role="status" class="status"></p>
           </form>
-          <details id="chatgpt-plan">
-            <summary>ChatGPT Plus · acceso pendiente</summary>
-            <ol>
-              <li>Abre el <a href="https://developers.openai.com/siwc/request-client-id" target="_blank" rel="noopener noreferrer">formulario oficial de interés de Sign in with ChatGPT</a>.</li>
-              <li>Solicita el uso del plan de ChatGPT para Tablero Riwi e indica el dominio donde está publicado.</li>
-              <li>Cuando OpenAI habilite el acceso, el administrador del tablero podrá activar la conexión y ofrecer los modelos autorizados.</li>
-            </ol>
-          </details>
         </details>
         <div id="messages" class="messages" aria-live="polite"></div>
         <form id="ask" class="card">

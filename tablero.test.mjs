@@ -302,6 +302,36 @@ test('Google intercambia el código con PKCE y devuelve solo el acceso temporal'
   }
 });
 
+test('varias conversaciones del mismo paso se aíslan y usan el perfil del tutor en nube y navegador', async () => {
+  const selection = { id: 1, step: '2-1' };
+  const profile = { context: 'Nivel principiante', skills: 'Trazar los bucles', limits: 'Priorizar pistas' };
+  assert.equal((await call('/api/chat/tutor', profile)).status, 200);
+  assert.equal((await call('/api/chat/tutor')).json.skills, profile.skills);
+  const first = await call('/api/chat/new', { ...selection, title: 'Bucles con ejemplos' });
+  const second = await call('/api/chat/new', { ...selection, title: 'Pruebas de bucles' });
+  assert.equal(first.status, 201);
+  assert.notEqual(first.json.chat, second.json.chat);
+  assert.match((await call('/api/focus', first.json)).json.instructions, /Trazar los bucles/);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    assert.match(JSON.parse(options.body).messages[0].content, /Priorizar pistas/);
+    return Response.json({ choices: [{ message: { content: 'Empieza por una iteración.' } }] });
+  };
+  try {
+    assert.equal((await call('/api/chat', { ...first.json, message: '¿Cómo empiezo?', connection: {
+      provider: 'groq', model: 'openai/gpt-oss-20b', credential: 'test-fixture-key', allowCharges: true,
+    } })).status, 200);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal((await call('/api/focus', first.json)).json.history.length, 2);
+  assert.deepEqual((await call('/api/focus', second.json)).json.history, []);
+  assert.ok((await call('/api/chat/list')).json.some(item => item.chat === first.json.chat));
+  await call('/api/chat/delete', first.json);
+  assert.equal((await call('/api/focus', first.json)).status, 404);
+  assert.equal((await call('/api/focus', second.json)).status, 200);
+});
+
 test('reutiliza la guía de IA guardada y solo consulta el modelo al ampliar la explicación', async () => {
   const guide = { id: 1, step: '2-5', guide: true };
   const connection = { provider: 'openai', model: 'fixture', credential: 'test-guide-key', allowCharges: true };

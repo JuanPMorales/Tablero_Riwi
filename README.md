@@ -79,6 +79,15 @@ El tablero comprueba que Ollama tenga el modelo local antes de conectarlo. Solic
 
 **Eliminar conversación** borra los mensajes y las guías guardadas del chat del día o del paso abierto, según el hilo seleccionado. El progreso del checklist y las demás conversaciones se conservan.
 
+En **Chat Riwi → Conversaciones**, escribe un título y pulsa **Nueva conversación** para abrir un hilo independiente con el contexto del día o paso abierto. La lista también muestra los hilos anteriores. Las guías se reutilizan dentro de su conversación.
+
+En **Contexto y skills del tutor**, cada cuenta puede guardar su contexto, las habilidades que quiere usar y los límites adicionales. Las reglas base están en `tutor-policy.mjs` y se aplican tanto a los proveedores de nube como a Ollama. Las skills son instrucciones de comportamiento para el modelo. Al usar un proveedor de nube, este recibe el perfil, el contexto del ejercicio y los mensajes necesarios para la consulta. Evita incluir credenciales o datos personales en el perfil.
+
+### Empezar con una base vacía
+
+- **Local.** Cambia `RIWI_DB_PATH` en `.env` a un nombre nuevo, por ejemplo `riwi-nuevo.sqlite`, y reinicia el servidor. Se crean las tablas y el contenido inicial del catálogo.
+- **Vercel.** Crea otra base en Turso y genera un token para esa base. Actualiza `TURSO_DATABASE_URL` y `TURSO_AUTH_TOKEN` para **Production** y redespliega. Registra las cuentas en la base nueva y actualiza `RIWI_OWNER_ACCOUNT_ID` con el ID de la nueva cuenta titular. Para volver a los datos anteriores, restaura las variables de la base anterior y redespliega.
+
 ### Solicitud de acceso a ChatGPT Plus
 
 En la [solicitud oficial de OpenAI](https://developers.openai.com/siwc/request-client-id), indica **Tablero Riwi**, `https://tablero-riwi.vercel.app` y solicita **uso del plan de ChatGPT para generar respuestas**, además del inicio de sesión. El caso de uso es que cada estudiante autorice su propia cuenta para conversar con un tutor de programación. La conexión de planes y el selector de modelos quedan pendientes de que OpenAI habilite el acceso y comunique las condiciones para el cliente web.

@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { AGENDA, MODULES, RITCHIE_AGENDA, TRAYECTO, VERIFIED, ZONE, agendaModule, seedLesson } from './catalog.mjs';
 import { localDatabase } from './database.mjs';
 
@@ -54,6 +55,10 @@ const schema = `
   CREATE TABLE IF NOT EXISTS chat_revisions (
     account TEXT NOT NULL, lesson INTEGER NOT NULL, step TEXT NOT NULL, revision INTEGER NOT NULL,
     PRIMARY KEY(account,lesson,step)
+  );
+  CREATE TABLE IF NOT EXISTS account_threads (
+    account TEXT NOT NULL, id TEXT NOT NULL, lesson INTEGER NOT NULL, step TEXT NOT NULL,
+    title TEXT NOT NULL, created TEXT NOT NULL, PRIMARY KEY(account,id)
   );
   CREATE TABLE IF NOT EXISTS account_daily (
     account TEXT NOT NULL, date TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(account,date)
@@ -242,9 +247,10 @@ export async function openStore(path, db = localDatabase(path)) {
     }
     const chatRevision = async (id, step) => (await get(
       'SELECT revision FROM chat_revisions WHERE account=? AND lesson=? AND step=?', [account, id, step]))?.revision ?? 0;
-    function deleteChat(id, step) {
+    function deleteChat(id, step, chat) {
       return transaction(async () => {
         await execute('DELETE FROM account_messages WHERE account=? AND lesson=? AND step=?', [account, id, step]);
+        if (chat) await execute('DELETE FROM account_threads WHERE account=? AND id=?', [account, chat]);
         if (owner) {
           await execute('DELETE FROM messages WHERE lesson=? AND step=?', [id, step]);
           if (!step) await execute('DELETE FROM chat WHERE lesson=?', [id]);
@@ -253,6 +259,27 @@ export async function openStore(path, db = localDatabase(path)) {
           ON CONFLICT(account,lesson,step) DO UPDATE SET revision=revision+1`, [account, id, step]);
         return chatRevision(id, step);
       });
+    }
+    async function listChats() {
+      const custom = await all('SELECT id AS chat,lesson AS id,step,title,created FROM account_threads WHERE account=?', [account]);
+      const legacy = await all(`SELECT lesson AS id, step, MAX(created) AS created FROM account_messages
+        WHERE account=? AND instr(step,'~')=0 GROUP BY lesson,step`, [account]);
+      if (owner) {
+        for (const row of await all("SELECT DISTINCT lesson AS id, '' AS step FROM chat")) {
+          if (!legacy.some(item => item.id === row.id && !item.step)) legacy.push(row);
+        }
+      }
+      return [...custom, ...legacy].sort((a, b) => (b.created || '').localeCompare(a.created || ''));
+    }
+    async function createChat(id, step, title) {
+      const chat = randomUUID();
+      await execute('INSERT INTO account_threads VALUES (?,?,?,?,?,?)', [account, chat, id, step, title, new Date().toISOString()]);
+      return { id, step, chat, title };
+    }
+    const findChat = chat => get('SELECT lesson AS id,step,title FROM account_threads WHERE account=? AND id=?', [account, chat]);
+    async function tutorProfile() {
+      const row = await get('SELECT value FROM settings WHERE key=?', [owner ? 'tutor-profile' : `${account}:tutor-profile`]);
+      return row ? JSON.parse(row.value) : { context: '', skills: '', limits: '' };
     }
     function insertChat(id, step, prompt, answer) {
       const now = new Date().toISOString();
@@ -278,7 +305,8 @@ export async function openStore(path, db = localDatabase(path)) {
       });
     }
     return { find, ticks, applyTicks, hasNotice, makeNotice, snapshot, chatHistory, chatRevision, deleteChat, saveChat, guideHistory, saveGuide,
-      focus: (id, step) => setPersonal('chat-focus', JSON.stringify({ id, step })) };
+      listChats, createChat, findChat, tutorProfile, saveTutor: profile => setPersonal('tutor-profile', JSON.stringify(profile)),
+      focus: (id, step, chat) => setPersonal('chat-focus', JSON.stringify({ id, step, ...(chat ? { chat } : {}) })) };
   }
   function saveLesson(id, data) {
     return transaction(async () => {

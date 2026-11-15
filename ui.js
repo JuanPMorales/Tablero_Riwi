@@ -27,9 +27,12 @@ function link(label, url, cls) {
 function details(label, ...children) {
   return box('details', '', el('summary', label), ...children);
 }
+let statusTimer;
 function status(text, error = false) {
+  clearTimeout(statusTimer);
   $('status').textContent = text;
   $('status').toggleAttribute('data-error', error);
+  if (text) statusTimer = setTimeout(() => status(''), 5000);
 }
 async function api(path, data, signal) {
   const response = await fetch(path, { signal, ...(data === undefined ? {} : {
@@ -41,12 +44,12 @@ async function api(path, data, signal) {
   }
   if (!response.headers.get('Content-Type')?.includes('application/json')) throw new Error('El servidor no pudo responder. Intenta de nuevo.');
   const payload = await response.json();
-  if (!response.ok) throw new Error(payload.error);
+  if (!response.ok) throw Object.assign(new Error(payload.error), { status: response.status });
   return payload;
 }
 
 let state, selected, focus, week, pending = false, chatPending = false, chatLoad = 0;
-let connection, googlePending, threadHistory = [], threadRevision, ollamaRequest;
+let connection, googlePending, threadHistory = [], threadRevision, ollamaRequest, localTutor;
 let activeTab = 'check';
 let mutationQueue = Promise.resolve();
 $('logout').onclick = async () => {
@@ -474,7 +477,7 @@ const modelOptions = {
   ]],
   openai: ['', [
     ['Crea una clave de la API de OpenAI en tu proyecto.', 'https://platform.openai.com/api-keys'],
-    'Escribe el ID de un modelo disponible en tu proyecto. Para usar la suscripción, consulta ChatGPT Plus debajo del formulario.', connectWithKey,
+    'Escribe el ID de un modelo disponible en tu proyecto.', connectWithKey,
   ]],
   claude: ['', [
     ['Crea una clave en Claude Console dentro de tu workspace.', 'https://platform.claude.com/settings/keys'],
@@ -493,9 +496,12 @@ const modelOptions = {
   ]],
 };
 const localProvider = provider => provider === 'ollama' || provider === 'agent';
+let connectionStatusTimer;
 function connectionStatus(message, error = false) {
+  clearTimeout(connectionStatusTimer);
   $('connection-status').textContent = message;
   $('connection-status').toggleAttribute('data-error', error);
+  if (message) connectionStatusTimer = setTimeout(() => connectionStatus(''), 5000);
 }
 function updateConnectionForm() {
   const provider = $('provider').value;
@@ -523,7 +529,7 @@ function chatControls() {
   const ready = Boolean(connection || state?.chatReady);
   $('send').disabled = !ready || threadRevision === undefined || chatPending;
   $('cancel-chat').hidden = !ollamaRequest;
-  $('delete-chat').hidden = !threadHistory.length;
+  $('delete-chat').hidden = !threadHistory.length && !focus?.chat;
   $('delete-chat').disabled = chatPending;
   $('disconnect-model').hidden = !connection && !googlePending;
   $('active-model').textContent = connection ? `Modelo activo · ${connection.model}`
@@ -639,7 +645,7 @@ $('model-form').onsubmit = async event => {
 };
 updateConnectionForm();
 
-async function askLocal(modelConnection, data, history, signal) {
+async function askLocal(modelConnection, data, history, instructions, signal) {
   const { provider, port, model } = modelConnection;
   const base = `http://127.0.0.1:${port}`;
   const day = lesson(data.id);
@@ -650,7 +656,7 @@ async function askLocal(modelConnection, data, history, signal) {
     ...(quest ? { quest: quest[0], context: quest[1], instruction: quest[2][j], requirements: quest[3] } : {}),
     stepsDone: completed(day).count };
   const prompt = data.guide ? 'Guíame en este paso con un ejemplo y una prueba.' : data.message;
-  const messages = [{ role: 'system', content: 'Eres tutor de Riwi en español. Usa la tecnología indicada. Para las guías, explica qué hacer, los pasos, un ejemplo y cómo comprobarlo.' },
+  const messages = [{ role: 'system', content: instructions },
     { role: 'user', content: JSON.stringify(context) }, ...history.slice(-10).map(({ role, content }) => ({ role, content: content.slice(0, 4000) })),
     { role: 'user', content: prompt }];
   const ollama = provider === 'ollama';
@@ -671,14 +677,79 @@ async function askLocal(modelConnection, data, history, signal) {
     throw error;
   }
 }
+
+const sameChat = (a, b) => a?.id === b.id && a.step === b.step && a.chat === b.chat;
+let lastChat;
+async function refreshChats() {
+  try {
+    const chats = await api('/api/chat/list');
+    $('chat-list').replaceChildren(...(chats.length ? chats.map(chat => {
+      const day = lesson(chat.id);
+      const label = day && (chat.step ? cursorLabel(chat, day) : fullName(day));
+      const open = button(chat.title || label || 'Conversación', () => openChat(chat), 'secondary');
+      if (sameChat(focus, chat)) open.setAttribute('aria-current', 'true');
+      return box('li', '', open, ...(chat.title && label ? [el('small', label)] : []));
+    }) : [el('li', 'Todavía no hay conversaciones guardadas.')]));
+  } catch (error) {
+    $('chat-list').replaceChildren(el('li', error.message));
+  }
+}
+$('new-chat-form').onsubmit = async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const submit = form.querySelector('button');
+  submit.disabled = true;
+  const { id, step } = focus || { id: selected, step: '' };
+  try {
+    const chat = await api('/api/chat/new', { id, step, title: $('new-chat-title').value });
+    form.reset();
+    await openChat(chat);
+    status('Conversación creada.');
+  } catch (error) {
+    status(error.message, true);
+  } finally {
+    submit.disabled = false;
+  }
+};
+const tutorForm = $('tutor-form');
+tutorForm.querySelector('button').disabled = true;
+$('tutor-settings').ontoggle = async event => {
+  if (!event.target.open || tutorForm.dataset.loaded) return;
+  try {
+    const profile = await api('/api/chat/tutor');
+    for (const name of ['context', 'skills', 'limits']) tutorForm.elements[name].value = profile[name];
+    $('tutor-policy').textContent = profile.policy;
+    tutorForm.dataset.loaded = 'true';
+    tutorForm.querySelector('button').disabled = false;
+  } catch (error) {
+    status(error.message, true);
+  }
+};
+tutorForm.onsubmit = async event => {
+  event.preventDefault();
+  const submit = tutorForm.querySelector('button');
+  submit.disabled = true;
+  try {
+    const result = await api('/api/chat/tutor', Object.fromEntries(new FormData(tutorForm)));
+    localTutor = result.instructions;
+    status('Configuración del tutor guardada.');
+  } catch (error) {
+    status(error.message, true);
+  } finally {
+    submit.disabled = false;
+  }
+};
 async function openChat(selection, guide) {
   const day = lesson(selection?.id);
   if (!day) return;
   const stamp = ++chatLoad;
   focus = selection;
+  void refreshChats();
   const [i, j] = focus.step.split('-').map(Number);
   const quest = focus.step && day.quests[i];
-  $('chat-title').textContent = quest ? 'Guía paso a paso' : 'Chat Riwi';
+  if (!sameChat(selection, lastChat || {})) $('question').value = '';
+  lastChat = selection;
+  $('chat-title').textContent = selection.title || (quest ? 'Guía paso a paso' : 'Chat Riwi');
   $('chat-context').replaceChildren(box('article', 'card', el('small', state.track),
     el('h3', quest ? cursorLabel(focus, day) : fullName(day)), el('p', quest ? quest[1] : day.summary),
     el('p', quest ? quest[2][j] : day.title), el('small', day.technology || 'Tecnología pendiente de verificar.'),
@@ -695,10 +766,13 @@ async function openChat(selection, guide) {
   try {
     const result = await api('/api/focus', selection);
     if (stamp !== chatLoad) return;
+    if (result.title) $('chat-title').textContent = result.title;
     threadRevision = result.revision ?? 0;
+    localTutor = result.instructions;
     renderMessages(result.history);
-    if (quest && (guide || !result.history.length)) await sendChat({ ...selection, guide: true, basic: true }, false);
+    if (quest && !selection.chat && (guide || !result.history.length)) await sendChat({ ...selection, guide: true, basic: true }, false);
   } catch (error) {
+    if (stamp === chatLoad && selection.chat && error.status === 404) return openChat({ id: day.id, step: selection.step });
     if (stamp === chatLoad) status(error.message, true);
   }
 }
@@ -706,6 +780,7 @@ async function sendChat(data, useConnection = true) {
   if (chatPending || threadRevision === undefined) return;
   data = { ...data, revision: threadRevision };
   const previousMessages = threadHistory;
+  const instructions = localTutor;
   chatPending = true;
   const active = useConnection ? connection : undefined;
   const controller = active?.provider === 'ollama' || (!active && state.chatReady && !data.basic) ? new AbortController() : undefined;
@@ -716,7 +791,7 @@ async function sendChat(data, useConnection = true) {
     if (data.guide && useConnection) {
       const saved = await api('/api/chat', { ...data, lookup: true }, controller?.signal);
       if (saved) {
-        if (focus?.id === data.id && focus?.step === data.step) renderMessages(saved);
+        if (sameChat(focus, data)) renderMessages(saved);
         status('Guía guardada cargada.');
         return;
       }
@@ -729,11 +804,14 @@ async function sendChat(data, useConnection = true) {
       disconnect();
       throw new Error('La sesión de Google venció. Vuelve a conectar.');
     }
-    if (active && localProvider(active.provider)) data = { ...data, localAnswer: await askLocal(active, data, previousMessages, controller?.signal) };
+    if (active && localProvider(active.provider)) data = { ...data, localAnswer: await askLocal(active, data, previousMessages, instructions, controller?.signal) };
     else if (active) data = { ...data, connection: active };
     const history = await api('/api/chat', data, controller?.signal);
-    if (focus?.id === data.id && focus?.step === data.step) renderMessages(history);
-    if (!data.guide && focus?.id === data.id && focus?.step === data.step) $('question').value = '';
+    if (sameChat(focus, data)) {
+      renderMessages(history);
+      if (!data.guide) $('question').value = '';
+    }
+    if (!previousMessages.length) void refreshChats();
     status('Conversación guardada.');
   } catch (error) {
     if (controller?.signal.aborted) status('Respuesta cancelada.');
@@ -746,16 +824,21 @@ async function sendChat(data, useConnection = true) {
 }
 $('cancel-chat').onclick = () => ollamaRequest?.abort();
 $('delete-chat').onclick = async () => {
-  if (chatPending || !threadHistory.length || !window.confirm('¿Eliminar esta conversación y sus guías guardadas?')) return;
+  if (chatPending || (!threadHistory.length && !focus?.chat) || !window.confirm('¿Eliminar esta conversación y sus guías guardadas?')) return;
   const selection = focus;
   chatPending = true;
   chatControls();
   try {
     const result = await api('/api/chat/delete', selection);
-    if (focus === selection) {
+    if (sameChat(focus, selection)) {
       threadRevision = result.revision;
       renderMessages([]);
+      if (selection.chat) {
+        chatPending = false;
+        await openChat({ id: selection.id, step: '' });
+      }
     }
+    void refreshChats();
     status('Conversación eliminada.');
   } catch (error) {
     status(error.message, true);

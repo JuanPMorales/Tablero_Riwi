@@ -6,7 +6,8 @@ import { MOODLE, COURSE, MY_COURSES, GENIALLY, AGENDA, MODULES, TRAYECTO, ZONE }
 import { bogota, guidePrompt, keys, openStore } from './store.mjs';
 import { localAnswer, offlineGuide } from './guide.mjs';
 import { accountAuth, digest } from './auth.mjs';
-import { chatTurns, cloudAnswer, tutor } from './providers.mjs';
+import { chatTurns, cloudAnswer } from './providers.mjs';
+import { tutorInstructions, tutorPolicy } from './tutor-policy.mjs';
 
 const { RIWI_ORIGIN, RIWI_MOODLE_TOKEN, CRON_SECRET, RIWI_OWNER_ACCOUNT_ID, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
 const googleOAuth = GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET ? GOOGLE_CLIENT_ID : null;
@@ -181,6 +182,8 @@ async function request(req, res, pathname) {
     }
     return json(res, 200, await state(store, canEdit));
   }
+  if (req.method === 'GET' && path === '/api/chat/list') return json(res, 200, await store.listChats());
+  if (req.method === 'GET' && path === '/api/chat/tutor') return json(res, 200, { ...await store.tutorProfile(), policy: tutorPolicy });
   if (req.method === 'GET' && /^\/api\/chat\/\d+(\/[0-9]+-[0-9]+)?$/.test(path)) {
     const [, , , id, step = ''] = path.split('/');
     const lesson = await lessonFor(store, Number(id));
@@ -255,28 +258,48 @@ async function request(req, res, pathname) {
     else throw fault(400, 'Selecciona un estado de Moodle válido.');
     return json(res, 200, await state(store, canEdit));
   }
-  if (['/api/focus', '/api/chat', '/api/chat/delete'].includes(path)) {
+  if (path === '/api/chat/tutor') {
+    const profile = Object.fromEntries(Object.entries({ context: 4000, skills: 4000, limits: 3000 }).map(([key, max]) => {
+      if (!text(p[key], max, true)) throw fault(400, 'Revisa la longitud del contexto, las skills y los límites.');
+      return [key, p[key].trim()];
+    }));
+    await store.saveTutor(profile);
+    return json(res, 200, { instructions: tutorInstructions(profile) });
+  }
+  if (['/api/focus', '/api/chat', '/api/chat/delete', '/api/chat/new'].includes(path)) {
     const lesson = await lessonFor(store, p.id);
     const step = p.step ?? '';
     if (typeof step !== 'string' || (step && !keys(lesson).includes(step))) throw fault(404, 'Paso no encontrado.');
-    if (path === '/api/focus') {
-      await store.focus(lesson.id, step);
-      const revision = await store.chatRevision(lesson.id, step);
-      return json(res, 200, { history: await store.chatHistory(lesson.id, step), revision });
+    if (path === '/api/chat/new') {
+      if (!text(p.title, 100)) throw fault(400, 'Escribe un título para la conversación.');
+      return json(res, 201, await store.createChat(lesson.id, step, p.title.trim()));
     }
-    if (path === '/api/chat/delete') return json(res, 200, { revision: await store.deleteChat(lesson.id, step) });
-    const revision = await store.chatRevision(lesson.id, step);
+    let chat;
+    if (p.chat !== undefined) {
+      if (typeof p.chat !== 'string' || !/^[0-9a-f-]{36}$/.test(p.chat)) throw fault(404, 'Conversación no encontrada.');
+      chat = await store.findChat(p.chat);
+      if (!chat || chat.id !== lesson.id || chat.step !== step) throw fault(404, 'Conversación no encontrada.');
+    }
+    const threadStep = p.chat ? `${step}~${p.chat}` : step;
+    if (path === '/api/focus') {
+      await store.focus(lesson.id, step, p.chat);
+      const revision = await store.chatRevision(lesson.id, threadStep);
+      return json(res, 200, { history: await store.chatHistory(lesson.id, threadStep), revision,
+        ...(chat ? { title: chat.title } : {}), instructions: tutorInstructions(await store.tutorProfile()) });
+    }
+    if (path === '/api/chat/delete') return json(res, 200, { revision: await store.deleteChat(lesson.id, threadStep, p.chat) });
+    const revision = await store.chatRevision(lesson.id, threadStep);
     const deleted = () => fault(409, 'La conversación se eliminó o cambió. Vuelve a abrirla antes de enviar otra consulta.');
     if (p.revision !== undefined && p.revision !== revision) throw deleted();
     const guide = p.guide === true && step;
     const basic = p.basic === true || (!p.connection && p.localAnswer === undefined && !RIWI_OLLAMA_MODEL && p.lookup !== true);
     if (guide) {
-      const history = await store.guideHistory(lesson.id, step, basic);
+      const history = await store.guideHistory(lesson.id, threadStep, basic);
       if (history || p.lookup === true) return json(res, 200, history);
     }
     if (!guide && !text(p.message, 4000)) throw fault(400, 'Escribe una pregunta.');
     if (!guide && !p.connection && !p.localAnswer && !RIWI_OLLAMA_MODEL) throw fault(503, 'Conecta un modelo para conversar.');
-    const thread = account + '/' + lesson.id + '/' + step;
+    const thread = account + '/' + lesson.id + '/' + threadStep;
     if (busy.has(thread) || (RIWI_OLLAMA_MODEL && busy.size)) throw fault(409, 'Ya hay una respuesta en curso.');
     busy.add(thread);
     let prompt = guide ? guidePrompt : p.message.trim();
@@ -295,12 +318,13 @@ async function request(req, res, pathname) {
         const context = { track: TRAYECTO, module: MODULES.find(m => m.id === lesson.module).name, day,
           quest: quest ? { number: i + 1, title: quest[0], context: quest[1], ...quest[3] } : quests.map(q => q[0]),
           step: quest ? { number: j + 1, instruction: quest[2][j] } : null, marks: [...await store.ticks(lesson.id)] };
-        const history = await store.chatHistory(lesson.id, step);
+        const history = await store.chatHistory(lesson.id, threadStep);
+        const tutor = tutorInstructions(await store.tutorProfile());
         if (p.connection) {
           if (typeof p.connection !== 'object' || p.connection.allowCharges !== true) {
             throw fault(400, 'Confirma el uso de la cuota de tu proveedor antes de enviar la consulta.');
           }
-          answer = await cloudAnswer(p.connection, chatTurns(context, history, prompt));
+          answer = await cloudAnswer(p.connection, chatTurns(context, history, prompt), tutor);
         } else {
           const controller = new AbortController();
           res.once?.('close', () => controller.abort());
@@ -314,8 +338,8 @@ async function request(req, res, pathname) {
       }
       const usedBasic = !answer;
       answer = usedBasic ? 'Guía del tablero\n\n' + offlineGuide(lesson, step) : 'Respuesta de IA\n\n' + answer;
-      const saved = guide ? await store.saveGuide(lesson.id, step, usedBasic, answer, revision)
-        : await store.saveChat(lesson.id, step, prompt, answer, revision);
+      const saved = guide ? await store.saveGuide(lesson.id, threadStep, usedBasic, answer, revision)
+        : await store.saveChat(lesson.id, threadStep, prompt, answer, revision);
       if (!saved) throw deleted();
       return json(res, 200, saved);
     } finally {

@@ -8,6 +8,9 @@ button,.button,input,select,textarea{font:inherit}button,.button{display:inline-
 label{display:block;font-weight:650}input:not([type=checkbox]),select,textarea{width:100%;min-width:0;min-height:44px;padding:8px 10px;margin:4px 0 10px;border:1px solid #a4bdd0;border-radius:8px;color:var(--deep);background:white}textarea{min-height:94px;resize:vertical}.check{display:flex;align-items:flex-start;gap:10px;min-height:44px;padding:10px 0}.check input{width:20px;height:20px;margin:2px 0 0;flex:none;accent-color:var(--blue)}.step{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:9px;align-items:center;border-top:1px solid var(--line);padding:8px 0}.step.current{background:#f0f8ff;padding-inline:8px}.copy{white-space:pre-wrap}.quest-meta{background:var(--light);border-radius:8px;padding:10px}.calendar-days{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}.calendar-days>.card{margin:0}.session+.session{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}.messages{margin-block:15px}.msg{max-width:90%;white-space:pre-wrap}.msg.user{margin-left:auto;background:#dceffd}.message-role{margin-bottom:5px;font-weight:750;color:#174d73}.forms{display:grid;gap:0 14px;grid-template-columns:repeat(2,minmax(0,1fr))}.forms .wide{grid-column:1/-1}
 fieldset{min-inline-size:0;margin-inline:0}
 .provider-command{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--light);border-radius:8px;padding:10px}
+#chat-list{padding-inline-start:0;list-style:none;max-height:16rem;overflow:auto}
+#chat-list li+li{margin-top:8px}
+#chat-list button[aria-current]{border-color:var(--blue);background:var(--wash)}
 .login-page{width:min(100%,480px);margin:clamp(18px,10vh,100px) auto 0}
 .login-page .brand{margin-bottom:20px}
 .login-page .card>.secondary{margin-top:12px}
