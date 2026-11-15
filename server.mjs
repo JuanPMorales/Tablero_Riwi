@@ -298,7 +298,7 @@ async function request(req, res, pathname) {
           answer = await cloudAnswer(p.connection, chatTurns(context, history, prompt));
         } else {
           try {
-            answer = await localAnswer(RIWI_OLLAMA_MODEL, chatTurns(context, history, prompt), tutor);
+            answer = await localAnswer(RIWI_OLLAMA_MODEL, chatTurns(context, history, prompt), tutor, Boolean(guide));
           } catch {
             if (!guide) throw fault(503, 'El modelo local no respondió. Revisa Ollama e inténtalo de nuevo.');
           }

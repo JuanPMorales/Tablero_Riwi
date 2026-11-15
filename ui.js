@@ -455,13 +455,36 @@ function renderMessages(history) {
   $('messages').replaceChildren(...history.map(row => box('article', 'card msg ' + row.role,
     el('p', row.role === 'user' ? 'Tú' : 'Asistente Riwi', 'message-role'), el('div', row.content))));
 }
+const connectWithKey = 'Pega la clave en este formulario, confirma el uso de tu cuota y pulsa Conectar. Envía una pregunta nueva para probar.';
 const modelOptions = {
-  gemini: ['gemini-3.8-flash', 'Usa una clave de Google AI Studio.'],
-  'google-cloud': ['gemini-3.5-flash-lite', 'Selecciona tu cuenta de Google y usa un proyecto con acceso a Gemini en Google Cloud.'],
-  openai: ['', 'Usa una clave de la plataforma API de OpenAI. El plan de ChatGPT requiere una integración autorizada por OpenAI.'],
-  claude: ['', 'Usa una clave de API de Claude Console de un workspace autorizado.'],
-  ollama: ['', 'Escribe el nombre que aparece en ollama list. El navegador se conecta al Ollama de este dispositivo.'],
-  agent: ['', 'El agente debe exponer /v1/chat/completions en este equipo y permitir el origen del tablero.'],
+  gemini: ['gemini-3.8-flash', [
+    ['Crea una clave en Google AI Studio.', 'https://aistudio.google.com/apikey'],
+    'Escribe el ID de un modelo disponible en tu proyecto de AI Studio.', connectWithKey,
+  ]],
+  'google-cloud': ['gemini-3.5-flash-lite', [
+    ['Abre un proyecto de Google Cloud con la API de Vertex AI habilitada.', 'https://console.cloud.google.com/'],
+    'Escribe el ID del proyecto y un modelo disponible en él.',
+    'Confirma el uso de tu cuota, pulsa Continuar con Google y elige una cuenta con acceso al proyecto. Si falta configurar OAuth, avisa al administrador del tablero.',
+  ]],
+  openai: ['', [
+    ['Crea una clave de la API de OpenAI en tu proyecto.', 'https://platform.openai.com/api-keys'],
+    'Escribe el ID de un modelo disponible en tu proyecto. Para usar la suscripción, consulta ChatGPT Plus debajo del formulario.', connectWithKey,
+  ]],
+  claude: ['', [
+    ['Crea una clave en Claude Console dentro de tu workspace.', 'https://platform.claude.com/settings/keys'],
+    'Escribe el ID de un modelo disponible en ese workspace.', connectWithKey,
+  ]],
+  ollama: ['qwen3.5:4b', [
+    'En el PC donde abriste el tablero, abre Ollama. Si el modelo falta en ollama list, ejecuta ollama pull qwen3.5:4b.',
+    { label: 'Sal de Ollama, pega estas líneas en PowerShell y deja la terminal abierta.',
+      command: `$env:OLLAMA_ORIGINS = '${location.origin}'\n$env:OLLAMA_HOST = '127.0.0.1:11434'\nollama serve` },
+    'Escribe qwen3.5:4b, pulsa Conectar y concede el acceso local si el navegador lo pide. Envía una pregunta nueva para probar.',
+  ]],
+  agent: ['', [
+    'Arranca el agente en este equipo con una API compatible con /v1/chat/completions en 127.0.0.1.',
+    `Permite el origen ${location.origin} en la configuración CORS del agente.`,
+    'Escribe el ID y el puerto que indica el agente, pulsa Conectar y envía una pregunta nueva.',
+  ]],
 };
 const localProvider = provider => provider === 'ollama' || provider === 'agent';
 function connectionStatus(message, error = false) {
@@ -470,10 +493,14 @@ function connectionStatus(message, error = false) {
 }
 function updateConnectionForm() {
   const provider = $('provider').value;
-  const [model, description] = modelOptions[provider];
+  const [model, steps] = modelOptions[provider];
   const local = localProvider(provider);
   $('model').placeholder = model || 'Nombre exacto del modelo';
-  $('provider-hint').textContent = description;
+  $('provider-steps').replaceChildren(...steps.map(step => {
+    if (typeof step === 'string') return el('li', step);
+    if (step.command) return box('li', '', step.label, box('pre', 'provider-command', el('code', step.command)));
+    return box('li', '', link(...step));
+  }));
   $('project-field').hidden = provider !== 'google-cloud';
   $('project').required = provider === 'google-cloud';
   $('credential-field').hidden = local || provider === 'google-cloud';
@@ -498,6 +525,23 @@ function connect(modelConnection) {
   $('chat-connection').open = false;
   connectionStatus('Seleccionado para este chat · ' + modelConnection.model + '.');
   chatControls();
+}
+
+const localRequestOptions = { redirect: 'error', credentials: 'omit', targetAddressSpace: 'loopback' };
+async function checkOllama(model) {
+  let tags;
+  try {
+    const response = await fetch('http://127.0.0.1:11434/api/tags', {
+      ...localRequestOptions, signal: AbortSignal.timeout(10000),
+    });
+    if (response.ok) tags = await response.json();
+  } catch {
+    // A refused connection, CORS rejection and denied loopback access can look alike in fetch.
+  }
+  if (!tags) throw new Error('El navegador no pudo acceder a Ollama. Revisa que esté abierto, OLLAMA_ORIGINS y el permiso de red local.');
+  if (!tags.models?.some(item => item.name === model && !item.remote_model && !item.remote_host)) {
+    throw new Error('El modelo indicado debe estar descargado en Ollama.');
+  }
 }
 function disconnect() {
   googlePending?.popup.close();
@@ -563,6 +607,11 @@ $('model-form').onsubmit = async event => {
   try {
     if (localProvider(provider)) {
       const port = provider === 'ollama' ? 11434 : Number($('local-port').value || 1234);
+      if (provider === 'ollama') {
+        $('connect-model').disabled = $('provider').disabled = true;
+        connectionStatus('Comprobando Ollama…');
+        await checkOllama(model);
+      }
       connect({ provider, model, port });
     } else if (provider === 'google-cloud') {
       await startGoogle({ provider, model, project, allowCharges: true });
@@ -574,6 +623,8 @@ $('model-form').onsubmit = async event => {
   } catch (error) {
     disconnect();
     connectionStatus(error.message, true);
+  } finally {
+    $('connect-model').disabled = $('provider').disabled = false;
   }
 };
 updateConnectionForm();
@@ -581,7 +632,6 @@ updateConnectionForm();
 async function askLocal(modelConnection, data) {
   const { provider, port, model } = modelConnection;
   const base = `http://127.0.0.1:${port}`;
-  const options = { signal: AbortSignal.timeout(90000), redirect: 'error', credentials: 'omit', targetAddressSpace: 'loopback' };
   const day = lesson(data.id);
   const [i, j] = data.step.split('-').map(Number);
   const quest = data.step && day.quests[i];
@@ -593,24 +643,21 @@ async function askLocal(modelConnection, data) {
   const messages = [{ role: 'system', content: 'Eres tutor de Riwi en español. Usa la tecnología indicada. Para las guías, explica qué hacer, los pasos, un ejemplo y cómo comprobarlo.' },
     { role: 'user', content: JSON.stringify(context) }, ...threadHistory.slice(-10).map(({ role, content }) => ({ role, content: content.slice(0, 4000) })),
     { role: 'user', content: prompt }];
+  const ollama = provider === 'ollama';
+  if (ollama) await checkOllama(model);
   try {
-    if (provider === 'ollama') {
-      const tags = await fetch(base + '/api/tags', options);
-      if (!tags.ok || !(await tags.json()).models?.some(item => item.name === model && !item.remote_model && !item.remote_host)) {
-        throw new Error('El modelo indicado debe estar descargado en Ollama.');
-      }
-    }
-    const ollama = provider === 'ollama';
-    const response = await fetch(base + (ollama ? '/api/chat' : '/v1/chat/completions'), { ...options,
+    const response = await fetch(base + (ollama ? '/api/chat' : '/v1/chat/completions'), {
+      ...localRequestOptions, signal: AbortSignal.timeout(ollama ? 180000 : 90000),
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, messages, stream: false,
-        ...(ollama ? { options: { num_predict: 1000 } } : { max_tokens: 1000 }) }) });
-    if (!response.ok) throw new Error('El servicio local rechazó la consulta. Revisa el modelo y el puerto.');
+        ...(ollama ? { think: false, options: { num_predict: data.guide ? 600 : 320 } } : { max_tokens: 1000 }) }) });
+    if (!response.ok) throw new Error('El servicio local recibió la consulta y devolvió un error. Revisa el registro del modelo e inténtalo de nuevo.');
     const result = await response.json();
     const answer = (ollama ? result.message?.content : result.choices?.[0]?.message?.content)?.trim();
     if (!answer) throw new Error('El modelo local devolvió una respuesta vacía.');
     return answer.slice(0, 16000);
   } catch (error) {
-    if (error instanceof TypeError || error.name === 'TimeoutError') throw new Error('No se pudo conectar al servicio local. Revisa que esté abierto, que permita el origen del tablero y que el navegador tenga permiso de acceso local.');
+    if (error.name === 'TimeoutError') throw new Error('El modelo local tardó demasiado en responder. Intenta con una pregunta más corta.');
+    if (error instanceof TypeError) throw new Error('Se perdió el acceso al servicio local. Revisa que esté abierto y que el navegador permita el acceso local.');
     throw error;
   }
 }

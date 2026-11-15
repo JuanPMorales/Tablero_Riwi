@@ -74,6 +74,12 @@ Para activar Google, crea un cliente OAuth de tipo **Aplicación web** en Google
 
 Para Ollama, mantén el servicio en loopback, activa `OLLAMA_NO_CLOUD=1`, configura `OLLAMA_ORIGINS` con el origen exacto del tablero y reinicia Ollama. En un agente compatible configura CORS para ese mismo origen. Si el navegador solicita permiso de red local, concédelo al conectar. La conexión llega al servicio instalado en el dispositivo que tiene abierto el navegador. Puedes mantener el modo anterior `RIWI_OLLAMA_MODEL` si ejecutas Node y Ollama directamente en el mismo equipo.
 
+El tablero comprueba que Ollama tenga el modelo local antes de conectarlo. Solicita respuestas sin razonamiento visible, limita la generación a 320 tokens para preguntas y 600 para guías y permite hasta tres minutos para responder. Si aparece un mensaje de tiempo agotado, Ollama ya recibió la consulta. Prueba con una pregunta más corta.
+
+### Solicitud de acceso a ChatGPT Plus
+
+En la [solicitud oficial de OpenAI](https://developers.openai.com/siwc/request-client-id), indica **Tablero Riwi**, `https://tablero-riwi.vercel.app` y solicita **uso del plan de ChatGPT para generar respuestas**, además del inicio de sesión. El caso de uso es que cada estudiante autorice su propia cuenta para conversar con un tutor de programación. La conexión de planes y el selector de modelos quedan pendientes de que OpenAI habilite el acceso y comunique las condiciones para el cliente web.
+
 ## Costos y límites
 
 | Componente | Condición y comportamiento al alcanzar el límite |

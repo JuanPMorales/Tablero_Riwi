@@ -42,7 +42,7 @@
               <option value="ollama">Ollama en este dispositivo</option>
               <option value="agent">Agente local · API compatible con OpenAI</option>
             </select>
-            <p id="provider-hint"></p>
+            <ol id="provider-steps"></ol>
             <label for="model">Nombre del modelo o agente</label>
             <input id="model" required maxlength="120" autocomplete="off">
             <div id="project-field" hidden>
@@ -61,6 +61,14 @@
             <div class="row"><button id="connect-model" type="submit">Conectar</button><button id="disconnect-model" type="button" class="secondary" hidden>Desconectar</button></div>
             <p id="connection-status" role="status" class="status"></p>
           </form>
+          <details id="chatgpt-plan">
+            <summary>ChatGPT Plus · acceso pendiente</summary>
+            <ol>
+              <li>Abre la <a href="https://developers.openai.com/siwc/request-client-id" target="_blank" rel="noopener noreferrer">solicitud oficial de Sign in with ChatGPT</a>.</li>
+              <li>Solicita el uso del plan de ChatGPT para Tablero Riwi e indica el dominio donde está publicado.</li>
+              <li>Cuando OpenAI habilite el acceso, el administrador del tablero podrá activar la conexión y ofrecer los modelos autorizados.</li>
+            </ol>
+          </details>
         </details>
         <div id="messages" class="messages" aria-live="polite"></div>
         <form id="ask" class="card">

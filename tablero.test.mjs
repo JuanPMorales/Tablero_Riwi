@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { openStore } from './store.mjs';
 import { remoteDatabase } from './database.mjs';
+import { localAnswer } from './guide.mjs';
 
 const directory = mkdtempSync(join(tmpdir(), 'tablero-riwi-'));
 process.env.RIWI_DB_PATH = join(directory, 'handlers.sqlite');
@@ -243,6 +244,25 @@ test('el chat usa la credencial solo con el proveedor y conserva el hilo sin gua
   const local = await call('/api/chat', { id: 1, step: '2-3', message, localAnswer: 'Respuesta del modelo local.' });
   assert.match(local.json.at(-1).content, /Respuesta del modelo local/);
   assert.match((await call('/api/chat', { id: 1, step: '2-4', guide: true, basic: true })).json.at(-1).content, /^Guía del tablero/);
+});
+
+test('Ollama solicita una respuesta directa y usa un límite distinto para las guías', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    if (url.endsWith('/api/tags')) return Response.json({ models: [{ name: 'qwen3.5:4b' }] });
+    assert.equal(url, 'http://127.0.0.1:11434/api/chat');
+    requests.push(JSON.parse(options.body));
+    return Response.json({ message: { content: '¡Hola!' } });
+  };
+  try {
+    const messages = [{ role: 'user', content: 'Hola' }];
+    assert.equal(await localAnswer('qwen3.5:4b', messages, 'Tutor'), '¡Hola!');
+    assert.equal(await localAnswer('qwen3.5:4b', messages, 'Tutor', true), '¡Hola!');
+    assert.deepEqual(requests.map(request => [request.think, request.options.num_predict]), [[false, 320], [false, 600]]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('Google intercambia el código con PKCE y devuelve solo el acceso temporal', async () => {
