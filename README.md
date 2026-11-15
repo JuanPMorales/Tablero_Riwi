@@ -4,9 +4,9 @@ Tablero personal para Desarrollo de Software, Trayecto 2, clan Ritchie. Organiza
 
 ## Ejecutar en Windows
 
-1. Instala [Node.js 24](https://nodejs.org/). No hay paquetes de npm que instalar.
-2. En el directorio del proyecto, ejecuta `Copy-Item .env.example .env`.
-3. Ejecuta `node --env-file=.env server.mjs` y abre [el tablero local](http://127.0.0.1:8765/). Crea una cuenta con tu cédula y una contraseña de al menos 12 caracteres.
+1. Instala [Node.js 24](https://nodejs.org/).
+2. En el directorio del proyecto, ejecuta `npm ci`. Para personalizar la configuración, copia `.env.example` a `.env`.
+3. Ejecuta `npm start` y abre [el tablero local](http://127.0.0.1:8765/). Crea una cuenta con tu cédula y una contraseña de al menos 12 caracteres.
 4. Para ejecutar las pruebas, usa `node --test`.
 
 La base predeterminada es `riwi.sqlite`. Si vienes de la Beta, detén el servidor anterior, guarda una copia de seguridad y apunta `RIWI_DB_PATH` al archivo existente. El servidor agrega las tablas necesarias y conserva las casillas, fichas importadas, avisos y conversaciones. El historial reconstruido de la Beta indica cuándo no hay fecha de finalización registrada. Para copiar una base en uso usa la API de respaldo de SQLite. Para copiar archivos directamente detén los procesos que la usan y, si existe, conserva también el archivo WAL junto al principal.

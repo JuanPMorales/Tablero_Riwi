@@ -2,7 +2,17 @@
   "name": "tablero-riwi",
   "private": true,
   "type": "module",
-  "engines": { "node": "24.x" },
-  "scripts": { "start": "node --env-file-if-exists=.env server.mjs", "test": "node --test" },
-  "dependencies": { "@libsql/client": "0.17.4" }
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@highlightjs/cdn-assets": "11.12.0",
+    "@libsql/client": "0.17.4",
+    "markdown-it": "15.0.3",
+    "skulpt": "1.2.0"
+  }
 }

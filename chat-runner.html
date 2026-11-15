@@ -2,10 +2,32 @@
 <html lang="es">
 <meta charset="utf-8">
 <title>Pruebas de JavaScript</title>
+<textarea id="python-runtime" hidden></textarea>
 <script>
   addEventListener('message', event => {
     if (event.source !== parent || typeof event.data?.code !== 'string' || event.data.code.length > 20000) return;
-    const source = `
+    const runtime = document.getElementById('python-runtime').value;
+    const source = runtime ? new TextDecoder().decode(Uint8Array.from(atob(runtime), character => character.charCodeAt(0))) + '\n;\n' + `
+      (() => {
+        const send = postMessage.bind(self);
+        let output = '';
+        Sk.configure({
+          __future__: Sk.python3,
+          output: value => { if (output.length < 6000) output += value.slice(0, 6000 - output.length); },
+          read: name => {
+            if (!Object.hasOwn(Sk.builtinFiles.files, name)) throw new Error('Módulo no disponible: ' + name);
+            return Sk.builtinFiles.files[name];
+          },
+          inputfun: () => { throw new Error('Esta prueba no admite input().'); },
+          execLimit: 2500,
+        });
+        const code = ${JSON.stringify(event.data.code)};
+        Sk.misceval.asyncToPromise(() => Sk.importMainWithBody('<chat>', false, code, true)).then(
+          () => { if (output) send({ line: output }); send({ done: true }); },
+          error => { if (output) send({ line: output }); send({ error: String(error).slice(0, 2000) }); }
+        );
+      })();
+    ` : `
       (() => {
         const send = postMessage.bind(self);
         let lines = 0;
@@ -46,7 +68,7 @@
     try {
       worker = new Worker(url);
       worker.onmessage = ({ data }) => {
-        if (typeof data?.line === 'string' && lines.length < 30) lines.push(data.line.slice(0, 2000));
+        if (typeof data?.line === 'string' && lines.length < 30) lines.push(data.line.slice(0, runtime ? 6000 : 2000));
         if (data?.done === true || typeof data?.error === 'string') finish(data.error?.slice(0, 2000));
       };
       worker.onerror = error => {

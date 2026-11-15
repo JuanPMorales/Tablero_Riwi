@@ -44,17 +44,32 @@ const assets = new Map([
   ['/', ['index.html', 'text/html']], ['/ui.css', ['ui.css', 'text/css']],
   ['/ui.js', ['ui.js', 'application/javascript']], ['/login', ['login.html', 'text/html']],
   ['/chat-blocks.js', ['chat-blocks.js', 'application/javascript']],
+  ['/chat-markdown.js', ['node_modules/markdown-it/dist/browser/markdown-it.umd.min.js', 'application/javascript']],
+  ['/chat-highlight.js', ['node_modules/@highlightjs/cdn-assets/highlight.min.js', 'application/javascript']],
   ['/login.js', ['login.js', 'application/javascript']],
   ['/google-callback', ['google-callback.html', 'text/html']],
   ['/google-callback.js', ['google-callback.js', 'application/javascript']],
 ].map(([path, [file, type]]) => [path, [readFileSync(new URL(file, import.meta.url)), type]]));
-const runner = readFileSync(new URL('chat-runner.html', import.meta.url), 'utf8').replace(/\r\n?/g, '\n');
-const runnerHash = createHash('sha256').update(runner.split('<script>')[1].split('</script>')[0]).digest('base64');
+const runner = readFileSync(new URL('./chat-runner.html', import.meta.url), 'utf8').replace(/\r\n?/g, '\n');
+const htmlPreview = readFileSync(new URL('./chat-preview.html', import.meta.url), 'utf8').replace(/\r\n?/g, '\n');
+const python = [
+  readFileSync(new URL('./node_modules/skulpt/dist/skulpt.min.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('./node_modules/skulpt/dist/skulpt-stdlib.js', import.meta.url), 'utf8'),
+].join('\n;\n');
+const pythonRunner = runner.replace('id="python-runtime" hidden>', 'id="python-runtime" hidden>' + Buffer.from(python).toString('base64'));
+const frameAssets = new Map([
+  ['/chat-runner.html', [runner, '', 'worker-src blob:']],
+  ['/chat-python-runner.html', [pythonRunner, " 'unsafe-eval'", 'worker-src blob:']],
+  ['/chat-preview.html', [htmlPreview, '', "style-src 'unsafe-inline'; img-src data:"]],
+].map(([path, [document, scriptOptions, directives]]) => {
+  const hash = createHash('sha256').update(document.split('<script>')[1].split('</script>')[0]).digest('base64');
+  return [path, [document, `default-src 'none'; script-src 'sha256-${hash}'${scriptOptions}; ${directives}; connect-src 'none'; frame-ancestors 'self'; sandbox allow-scripts`]];
+}));
 
-function serveRunner(res) {
-  res.setHeader('Content-Security-Policy', `default-src 'none'; script-src 'sha256-${runnerHash}'; worker-src blob:; connect-src 'none'; frame-ancestors 'self'; sandbox allow-scripts`);
+function serveFrame(res, [document, policy]) {
+  res.setHeader('Content-Security-Policy', policy);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-  res.end(runner);
+  res.end(document);
 }
 
 function serveAsset(res, path) {
@@ -152,7 +167,7 @@ async function request(req, res, pathname) {
   res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' http://127.0.0.1:*; frame-src 'self' https://teamlead.up.railway.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   if (production || onVercel) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
   const path = typeof pathname === 'string' ? pathname : new URL(req.url, origin).pathname;
-  if (req.method === 'GET' && path === '/chat-runner.html') return serveRunner(res);
+  if (req.method === 'GET' && frameAssets.has(path)) return serveFrame(res, frameAssets.get(path));
   if (path === '/api/cron') {
     if (req.method !== 'GET' || !CRON_SECRET || CRON_SECRET.length < 16
       || !timingSafeEqual(digest(req.headers.authorization || ''), digest('Bearer ' + CRON_SECRET))) {

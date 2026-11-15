@@ -32,17 +32,6 @@ fieldset{min-inline-size:0;margin-inline:0}
 .chat-list-item details[open]{grid-column:1/-1}
 .chat-list-item small{margin-top:4px}
 .msg{min-width:0;white-space:normal}
-.chat-block{margin-top:8px;border:1px solid var(--line);border-radius:9px;background:var(--light);overflow:hidden}
-.chat-block-tools{padding:7px 10px;border-bottom:1px solid var(--line)}
-.chat-block-tools strong{font-size:.85rem;color:var(--muted)}
-.chat-block-tools button,.chat-block-editor button{padding:5px 9px;font-size:.9rem}
-.chat-block-source,.chat-block-output{margin:0;padding:10px 12px;white-space:pre-wrap}
-pre.chat-block-source,.chat-block-output pre{white-space:pre;overflow:auto;overflow-wrap:normal;max-height:26rem}
-.chat-block-source code,.chat-block-editor textarea,.chat-block-output pre{font: .9rem/1.5 Consolas,monospace}
-.chat-block-editor{padding:10px}
-.chat-block-editor textarea{margin-top:0}
-.chat-block-output{background:var(--white);border:1px solid var(--line);border-radius:8px;margin-top:10px}
-.chat-block-output pre{margin:0}
 .history-summary,.history-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
 .history-summary strong{font-size:1.45rem}
 .history-filters input,.history-filters select{margin-bottom:0}
@@ -68,4 +57,56 @@ pre.chat-block-source,.chat-block-output pre{white-space:pre;overflow:auto;overf
   .history-filters{grid-template-columns:1fr}
 }
 @media(max-width:430px){header{padding:12px}.brand-mark{display:none}.brand small{font-size:.73rem}.step,.forms{grid-template-columns:minmax(0,1fr)}.step button{justify-self:start}.msg{max-width:100%}.history-summary{gap:6px}.history-summary .card{padding:8px}.history-summary strong{font-size:1.15rem}.chat-list-item{grid-template-columns:minmax(0,1fr)}}
+
+.chat-workspace{border:1px solid #c8dae8;border-radius:12px;overflow:hidden;background:#fff}
+.chat-workspace-tools{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;background:#f3f8fc;border-bottom:1px solid #d7e5ef}
+.chat-workspace-title{min-width:0;overflow-wrap:anywhere;color:#254760}
+.chat-workspace-title strong{font-size:.9rem}
+.chat-workspace-title small{font-size:.75rem}
+.chat-workspace-actions,.chat-workspace-modes{gap:4px}
+.chat-workspace-modes{padding:3px;background:#e3edf5;border-radius:9px}
+.chat-workspace-actions button,.chat-workspace-body>button,.chat-workspace-result button{font-size:.84rem;min-height:34px;padding:5px 10px}
+.chat-workspace-actions button{background:transparent;border-color:transparent;color:#264c68}
+.chat-workspace-actions button[aria-pressed=true]{background:white;box-shadow:0 1px 3px #19324826;color:#122d48}
+.chat-workspace-actions button:hover{background:#d9e8f3}
+.chat-workspace-actions .chat-run-action{background:#176596;color:white;margin-left:3px}
+.chat-workspace-actions .chat-run-action:hover{background:#0d537f}
+.chat-workspace-body{min-width:0}
+.chat-code,.chat-workspace-result>pre{margin:0;padding:15px 16px;white-space:pre;overflow:auto;overflow-wrap:normal;tab-size:2;background:#101c2e;color:#e6edf6;font: .92rem/1.65 Consolas,"Courier New",monospace;max-height:28rem}
+.chat-code code{font:inherit;color:inherit}
+.chat-code .hljs-comment,.chat-code .hljs-quote{color:#99aac0}
+.chat-code .hljs-keyword,.chat-code .hljs-selector-tag,.chat-code .hljs-doctag{color:#d8aaff}
+.chat-code .hljs-string,.chat-code .hljs-regexp,.chat-code .hljs-addition{color:#a6e6af}
+.chat-code .hljs-number,.chat-code .hljs-literal,.chat-code .hljs-variable{color:#ffc88c}
+.chat-code .hljs-title,.chat-code .hljs-built_in,.chat-code .hljs-function{color:#9fc9ff}
+.chat-code .hljs-attr,.chat-code .hljs-attribute,.chat-code .hljs-property,.chat-code .hljs-symbol,.chat-code .hljs-name{color:#8de6e1}
+.chat-code .hljs-meta,.chat-code .hljs-link,.chat-code .hljs-section{color:#8fcefc}
+.chat-code .hljs-strong{font-weight:750}
+.chat-code .hljs-emphasis{font-style:italic}
+.chat-workspace-body>button{margin:9px 12px}
+.chat-plain,.chat-markdown{padding:clamp(13px,3vw,24px)}
+.chat-plain{white-space:pre-wrap}
+.chat-markdown> :last-child{margin-bottom:0}
+.chat-markdown h1{font-size:1.55rem;line-height:1.2;margin:0 0 14px}
+.chat-markdown h2{font-size:1.22rem;line-height:1.25;margin:1em 0 .45em}
+.chat-markdown h3{margin:1em 0 .4em}
+.chat-markdown ul,.chat-markdown ol{margin:0 0 12px;padding-inline-start:1.65em}
+.chat-markdown li+li{margin-top:.3em}
+.chat-markdown blockquote{margin:12px 0;padding:9px 12px;border-left:3px solid #a5c8e1;background:#f0f7fc}
+.chat-markdown p code,.chat-markdown li code,.chat-markdown td code{background:#e9f1f8;color:#153853;padding:.13em .32em;border-radius:4px;font-size:.9em}
+.chat-markdown .chat-code,.chat-workspace-result .chat-code,.chat-workspace-result>pre{border-radius:8px}
+.chat-markdown .chat-code{margin:12px 0}
+.chat-markdown table{display:block;overflow:auto;border-collapse:collapse;margin:12px 0}
+.chat-markdown th,.chat-markdown td{padding:5px 10px;border:1px solid var(--line);text-align:start}
+.chat-markdown th{background:#edf4fa}
+.chat-html-preview{display:block;width:100%;height:280px;border:0;background:#fff}
+.chat-workspace-result{padding:12px;background:#f3f8fc;border-top:1px solid #d7e5ef}
+.chat-workspace-result .chat-html-preview{border:1px solid #d7e5ef;border-radius:8px}
+.chat-workspace-result>.chat-code+button{margin-top:8px}
+.chat-editor{position:relative;background:#101c2e;min-height:15rem}
+.chat-editor .chat-code,.chat-editor textarea{font: .92rem/1.65 Consolas,"Courier New",monospace;tab-size:2;padding:15px 16px;white-space:pre;overflow-wrap:normal}
+.chat-editor .chat-code{position:absolute;inset:0;overflow:hidden;max-height:none;pointer-events:none}
+.chat-editor textarea{position:relative;display:block;min-height:15rem;margin:0;border:0;border-radius:0;background:transparent;color:transparent;caret-color:#fff;overflow:auto;resize:vertical}
+.chat-editor textarea::selection{background:#649fd469;color:transparent}
+@media(max-width:570px){.chat-workspace-tools{padding:8px}.chat-workspace-actions{width:100%}.chat-workspace-actions button{min-height:40px}.messages .msg{max-width:100%}}
 

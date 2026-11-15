@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { resolveObjectURL } from 'node:buffer';
 import { Readable } from 'node:stream';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
+import { runInNewContext } from 'node:vm';
 import { openStore } from './store.mjs';
 import { remoteDatabase } from './database.mjs';
 import { localAnswer } from './guide.mjs';
@@ -19,6 +21,7 @@ process.env.CRON_SECRET = 'cron-secret-for-fixture';
 process.env.GOOGLE_CLIENT_ID = 'fixture.apps.googleusercontent.com';
 process.env.GOOGLE_CLIENT_SECRET = 'fixture-secret';
 process.env.RIWI_TUTOR_SKILLS = 'Trazar los bucles con el tutor privado';
+globalThis.fetch = async () => { throw new Error('Las pruebas solo admiten respuestas simuladas.'); };
 const { handleRequest, closeDatabase, writeOriginAllowed } = await import('./server.mjs');
 const ownerDetails = { document: '1000000001', password: 'owner-fixture-password' };
 let ownerCookie;
@@ -73,6 +76,15 @@ test('autenticación de las páginas, recursos y API; protección de origen', as
   assert.equal(runner.status, 200);
   assert.match(runner.headers['Content-Security-Policy'], /connect-src 'none';.*sandbox allow-scripts$/);
   assert.match(runner.headers['Content-Security-Policy'], /script-src 'sha256-[^']+';/);
+  const python = await call('/chat-python-runner.html', undefined, { auth: false });
+  assert.equal(python.status, 200);
+  assert.match(python.headers['Content-Security-Policy'], /'unsafe-eval'; worker-src blob:; connect-src 'none'/);
+  const preview = await call('/chat-preview.html', undefined, { auth: false });
+  assert.equal(preview.status, 200);
+  assert.match(preview.headers['Content-Security-Policy'], /connect-src 'none';.*sandbox allow-scripts$/);
+  for (const path of ['/chat-blocks.js', '/chat-markdown.js', '/chat-highlight.js']) {
+    assert.equal((await call(path)).headers['Content-Type'], 'application/javascript; charset=utf-8');
+  }
   assert.equal((await call('/api/cron')).status, 401);
   assert.equal((await call('/api/state', undefined, { auth: false, bearer: process.env.CRON_SECRET })).status, 401);
   const tablero = (await import('./api/tablero.js')).default;
@@ -81,6 +93,75 @@ test('autenticación de las páginas, recursos y API; protección de origen', as
   assert.equal((await call('/api/tablero?path=/health', undefined, { handler: tablero })).status, 200);
   const cron = (await import('./api/cron.js')).default;
   assert.equal((await call('/api/cron', undefined, { handler: cron, bearer: process.env.CRON_SECRET })).status, 200);
+});
+
+test('el mensaje conserva el documento Markdown y resalta bloques sin interpretar HTML incrustado', () => {
+  const browser = {};
+  for (const path of ['./node_modules/markdown-it/dist/browser/markdown-it.umd.min.js',
+    './node_modules/@highlightjs/cdn-assets/highlight.min.js', './chat-blocks.js']) {
+    runInNewContext(readFileSync(new URL(path, import.meta.url), 'utf8'), browser);
+  }
+  const { describe, highlight, markdown, wrap } = browser.RiwiChatBlocks;
+  const tick = String.fromCharCode(96);
+  const example = [
+    '# Café Origen – Análisis de ventas', '', '## Descripción', 'Se usa **Node.js LTS** y ' + tick + 'require' + tick,
+    '', '## Uso', '1. Ejecuta el análisis:', '', tick.repeat(3) + 'bash', 'node src/analitica.js',
+  ].join('\n');
+  const message = describe(example);
+  assert.equal(message.kind.id, 'markdown');
+  assert.equal(message.value, example);
+  const rendered = markdown.render(message.value);
+  assert.match(rendered, /<h1>Café Origen – Análisis de ventas<\/h1>/);
+  assert.match(rendered, /<strong>Node.js LTS<\/strong>.*<code>require<\/code>/);
+  assert.match(rendered, /<ol>[\s\S]*<pre class="chat-code">[\s\S]*node src\/analitica\.js/);
+  const attachment = describe('Archivo: café.md\n\n' + wrap(example, 'café.md'));
+  assert.equal(attachment.filename, 'café.md');
+  assert.equal(attachment.value, example);
+  assert.equal(describe('print("Café")').kind.id, 'python');
+  assert.equal(describe('const total = 6;').kind.id, 'javascript');
+  assert.equal(describe('<h1>Café</h1>').kind.id, 'html');
+  assert.match(highlight('print("Café")', 'python'), /hljs-string/);
+  assert.doesNotMatch(markdown.render('[enlace](javascript:alert(1))\n\n<script>alert(1)</script>\n\n![remota](https://example.org/)'),
+    /href="javascript:|<script>|<img\b/);
+});
+
+test('los entornos de prueba devuelven la salida de JavaScript y Python', async () => {
+  async function execute(path, code) {
+    const { value: html } = await call(path, undefined, { auth: false });
+    const runtime = html.match(/<textarea id="python-runtime" hidden>([^<]*)<\/textarea>/)[1];
+    const script = html.split('<script>')[1].split('</script>')[0];
+    return new Promise(resolve => {
+      let onRequest;
+      const parent = { postMessage: resolve };
+      const frame = {
+        parent, URL, Blob, setTimeout, clearTimeout, atob, TextDecoder, Uint8Array,
+        document: { getElementById: () => ({ value: runtime }) },
+        addEventListener: (_, callback) => { onRequest = callback; },
+        Worker: class {
+          constructor(url) { void this.start(url); }
+          async start(url) {
+            const source = await resolveObjectURL(url).text();
+            const worker = {
+              console: {}, setTimeout, clearTimeout, addEventListener() {}, importScripts() {},
+              postMessage: data => this.onmessage({ data }),
+            };
+            worker.self = worker;
+            try { runInNewContext(source, worker, { timeout: 1000 }); }
+            catch (error) { this.onerror({ message: String(error), preventDefault() {} }); }
+          }
+          terminate() {}
+        },
+      };
+      runInNewContext(script, frame);
+      onRequest({ source: parent, origin: 'https://tablero.example', data: { code } });
+    });
+  }
+  const js = await execute('/chat-runner.html', 'console.log(6 * 7)');
+  assert.equal(js.lines.join().trim(), '42', js.error);
+  const py = await execute('/chat-python-runner.html', 'print("Café", sum([6, 36]))');
+  assert.equal(py.lines.join().trim(), 'Café 42', py.error);
+  const error = await execute('/chat-python-runner.html', 'print(nombre_inexistente)');
+  assert.match(error.error, /NameError/);
 });
 
 test('cada cédula conserva sus propios cambios, sesión e historial de guía', async () => {

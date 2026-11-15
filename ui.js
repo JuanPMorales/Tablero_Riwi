@@ -570,7 +570,7 @@ function renderMessages(history) {
   threadHistory = history;
   list.append(...history.slice(start).map(row => box('article', 'card msg ' + row.role,
     el('p', row.role === 'user' ? 'Tú' : 'Asistente Riwi', 'message-role'),
-    ...RiwiChatBlocks.split(row.content).map(block => RiwiChatBlocks.renderBlock(block, status)))));
+    RiwiChatBlocks.message(RiwiChatBlocks.describe(row.content), status))));
   chatControls();
 }
 const connectWithKey = 'Pega la clave en este formulario, confirma el uso de tu cuota y pulsa Conectar. Envía una pregunta nueva para probar.';

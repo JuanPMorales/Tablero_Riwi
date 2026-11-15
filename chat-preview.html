@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<title>Vista previa de HTML</title>
+<body>
+<script>
+  addEventListener('message', event => {
+    if (event.source !== parent || typeof event.data?.html !== 'string' || event.data.html.length > 20000) return;
+    const template = document.createElement('template');
+    template.innerHTML = event.data.html;
+    const unsafe = 'script, base, link, meta, iframe, frame, object, embed, portal, fencedframe, template, svg, math, audio, video, source, track';
+    for (const element of template.content.querySelectorAll(unsafe)) element.remove();
+    const localAttributes = new Set([
+      'alt', 'class', 'colspan', 'dir', 'height', 'hidden', 'id', 'lang', 'open', 'rowspan', 'scope',
+      'start', 'style', 'title', 'type', 'value', 'width', 'placeholder', 'checked', 'disabled',
+    ]);
+    for (const element of template.content.querySelectorAll('*')) {
+      for (const { name, value } of [...element.attributes]) {
+        const picture = element.localName === 'img' && name === 'src' && /^data:image\/(?:png|jpeg|gif|webp|avif);base64,/i.test(value);
+        if (!localAttributes.has(name) && !picture) element.removeAttribute(name);
+      }
+    }
+    document.body.replaceChildren(template.content);
+  }, { once: true });
+</script>
+</body>
+</html>
