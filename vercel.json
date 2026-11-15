@@ -4,7 +4,7 @@
   "buildCommand": "node -e \"const fs = require('node:fs'); fs.mkdirSync('vercel-static', { recursive: true }); fs.writeFileSync('vercel-static/robots.txt', 'User-agent: *\\nDisallow: /\\n')\"",
   "outputDirectory": "vercel-static",
   "functions": {
-    "api/*.js": { "includeFiles": "{index.html,login.html,login.js,google-callback.html,google-callback.js,ui.js,ui.css,chat-blocks.js,chat-runner.html,chat-preview.html,lessons.json,node_modules/markdown-it/dist/browser/markdown-it.umd.min.js,node_modules/@highlightjs/cdn-assets/highlight.min.js,node_modules/skulpt/dist/skulpt.min.js,node_modules/skulpt/dist/skulpt-stdlib.js}", "maxDuration": 30 }
+    "api/*.js": { "includeFiles": "{*.html,*.js,ui.css,lessons.json,node_modules/{markdown-it,@highlightjs/cdn-assets,skulpt}/**/{*.umd.min.js,highlight.min.js,skulpt.min.js,skulpt-stdlib.js}}", "maxDuration": 30 }
   },
   "rewrites": [
     { "source": "/", "destination": "/api/tablero?path=/" },
