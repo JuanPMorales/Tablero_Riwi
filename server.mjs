@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { MOODLE, COURSE, MY_COURSES, GENIALLY, AGENDA, MODULES, TRAYECTO, ZONE } from './catalog.mjs';
@@ -43,10 +43,19 @@ export async function closeDatabase() {
 const assets = new Map([
   ['/', ['index.html', 'text/html']], ['/ui.css', ['ui.css', 'text/css']],
   ['/ui.js', ['ui.js', 'application/javascript']], ['/login', ['login.html', 'text/html']],
+  ['/chat-blocks.js', ['chat-blocks.js', 'application/javascript']],
   ['/login.js', ['login.js', 'application/javascript']],
   ['/google-callback', ['google-callback.html', 'text/html']],
   ['/google-callback.js', ['google-callback.js', 'application/javascript']],
 ].map(([path, [file, type]]) => [path, [readFileSync(new URL(file, import.meta.url)), type]]));
+const runner = readFileSync(new URL('chat-runner.html', import.meta.url), 'utf8').replace(/\r\n?/g, '\n');
+const runnerHash = createHash('sha256').update(runner.split('<script>')[1].split('</script>')[0]).digest('base64');
+
+function serveRunner(res) {
+  res.setHeader('Content-Security-Policy', `default-src 'none'; script-src 'sha256-${runnerHash}'; worker-src blob:; connect-src 'none'; frame-ancestors 'self'; sandbox allow-scripts`);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(runner);
+}
 
 function serveAsset(res, path) {
   const [file, type] = assets.get(path);
@@ -140,9 +149,10 @@ async function request(req, res, pathname) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' http://127.0.0.1:*; frame-src https://teamlead.up.railway.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+  res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' http://127.0.0.1:*; frame-src 'self' https://teamlead.up.railway.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   if (production || onVercel) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
   const path = typeof pathname === 'string' ? pathname : new URL(req.url, origin).pathname;
+  if (req.method === 'GET' && path === '/chat-runner.html') return serveRunner(res);
   if (path === '/api/cron') {
     if (req.method !== 'GET' || !CRON_SECRET || CRON_SECRET.length < 16
       || !timingSafeEqual(digest(req.headers.authorization || ''), digest('Bearer ' + CRON_SECRET))) {
@@ -220,6 +230,12 @@ async function request(req, res, pathname) {
     if (invalid) throw fault(400, 'Las casillas no corresponden a este día.');
     return json(res, 200, { ...await state(store, canEdit), next });
   }
+  if (path === '/api/history/note') {
+    const day = await lessonFor(store, p.id);
+    if (!text(p.note, 2000, true)) throw fault(400, 'La nota debe tener hasta 2000 caracteres.');
+    await store.saveHistoryNote(day.id, p.note.trim());
+    return json(res, 200, await state(store, canEdit));
+  }
   if (path === '/api/import') {
     const previous = p.id ? await lessonFor(store, p.id) : null;
     const module = previous?.module || p.module;
@@ -257,7 +273,7 @@ async function request(req, res, pathname) {
     else throw fault(400, 'Selecciona un estado de Moodle válido.');
     return json(res, 200, await state(store, canEdit));
   }
-  if (['/api/focus', '/api/chat', '/api/chat/delete', '/api/chat/new'].includes(path)) {
+  if (['/api/focus', '/api/chat', '/api/chat/delete', '/api/chat/new', '/api/chat/rename'].includes(path)) {
     const lesson = await lessonFor(store, p.id);
     const step = p.step ?? '';
     if (typeof step !== 'string' || (step && !keys(lesson).includes(step))) throw fault(404, 'Paso no encontrado.');
@@ -272,11 +288,18 @@ async function request(req, res, pathname) {
       if (!chat || chat.id !== lesson.id || chat.step !== step) throw fault(404, 'Conversación no encontrada.');
     }
     const threadStep = p.chat ? `${step}~${p.chat}` : step;
+    if (path === '/api/chat/rename') {
+      if (!text(p.title, 100)) throw fault(400, 'Escribe un título para la conversación.');
+      const title = p.title.trim();
+      if (!await store.renameChat(lesson.id, step, p.chat, title)) throw fault(404, 'Conversación no encontrada.');
+      return json(res, 200, { title });
+    }
     if (path === '/api/focus') {
       await store.focus(lesson.id, step, p.chat);
       const revision = await store.chatRevision(lesson.id, threadStep);
+      const title = chat?.title ?? await store.legacyChatTitle(lesson.id, step);
       return json(res, 200, { history: await store.chatHistory(lesson.id, threadStep), revision,
-        ...(chat ? { title: chat.title } : {}) });
+        ...(title ? { title } : {}) });
     }
     if (path === '/api/chat/delete') return json(res, 200, { revision: await store.deleteChat(lesson.id, threadStep, p.chat) });
     const revision = await store.chatRevision(lesson.id, threadStep);

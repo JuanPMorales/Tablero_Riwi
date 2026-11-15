@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<title>Pruebas de JavaScript</title>
+<script>
+  addEventListener('message', event => {
+    if (event.source !== parent || typeof event.data?.code !== 'string' || event.data.code.length > 20000) return;
+    const source = `
+      (() => {
+        const send = postMessage.bind(self);
+        let lines = 0;
+        const format = value => {
+          if (typeof value === 'string') return value.slice(0, 2000);
+          try { return (JSON.stringify(value) ?? String(value)).slice(0, 2000); }
+          catch { return String(value).slice(0, 2000); }
+        };
+        for (const method of ['log', 'info', 'warn', 'error', 'debug', 'table', 'dir']) {
+          console[method] = (...values) => {
+            if (lines++ < 30) send({ line: values.slice(0, 10).map(format).join(' ').slice(0, 2000) });
+          };
+        }
+        async function run() {
+          try {
+            const result = await (async () => {
+              ${event.data.code}
+            })();
+            if (result !== undefined) console.log(result);
+            send({ done: true });
+          } catch (error) {
+            send({ error: String(error).slice(0, 2000) });
+          }
+        }
+        run();
+      })();
+    `;
+    const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
+    let worker;
+    const lines = [];
+    function finish(error) {
+      clearTimeout(timer);
+      worker?.terminate();
+      URL.revokeObjectURL(url);
+      parent.postMessage({ type: 'riwi-run-result', lines, error }, event.origin);
+    }
+    const timer = setTimeout(() => finish('La prueba se detuvo después de 3 segundos.'), 3000);
+    try {
+      worker = new Worker(url);
+      worker.onmessage = ({ data }) => {
+        if (typeof data?.line === 'string' && lines.length < 30) lines.push(data.line.slice(0, 2000));
+        if (data?.done === true || typeof data?.error === 'string') finish(data.error?.slice(0, 2000));
+      };
+      worker.onerror = error => {
+        error.preventDefault();
+        finish(error.message || 'No se pudo ejecutar JavaScript.');
+      };
+    } catch {
+      finish('No se pudo iniciar la prueba en este navegador.');
+    }
+  }, { once: true });
+</script>
+</html>

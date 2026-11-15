@@ -18,6 +18,7 @@ process.env.RIWI_MOODLE_TOKEN = 'token-fixture';
 process.env.CRON_SECRET = 'cron-secret-for-fixture';
 process.env.GOOGLE_CLIENT_ID = 'fixture.apps.googleusercontent.com';
 process.env.GOOGLE_CLIENT_SECRET = 'fixture-secret';
+process.env.RIWI_TUTOR_SKILLS = 'Trazar los bucles con el tutor privado';
 const { handleRequest, closeDatabase, writeOriginAllowed } = await import('./server.mjs');
 const ownerDetails = { document: '1000000001', password: 'owner-fixture-password' };
 let ownerCookie;
@@ -49,7 +50,7 @@ test('autenticación de las páginas, recursos y API; protección de origen', as
   assert.equal(writeOriginAllowed({ ...headers, origin: 'http://mi-tablero.vercel.app' }, true), false);
   assert.equal((await call('/', undefined, { auth: false })).headers.Location, '/login');
   assert.match((await call('/login', undefined, { auth: false })).value, /Cédula/);
-  for (const path of ['/ui.js', '/health', '/api/state', '/api/chat/1', '/api/chat/1/2-0']) {
+  for (const path of ['/ui.js', '/chat-blocks.js', '/health', '/api/state', '/api/chat/1', '/api/chat/1/2-0']) {
     const unauthorized = await call(path, undefined, { auth: false });
     assert.equal(unauthorized.status, 401, path);
   }
@@ -67,7 +68,11 @@ test('autenticación de las páginas, recursos y API; protección de origen', as
   assert.equal(page.status, 200);
   assert.match(page.value, /Hoy \/ Checklist/);
   assert.equal(page.headers['Strict-Transport-Security'], 'max-age=31536000');
-  assert.match(page.headers['Content-Security-Policy'], /frame-src https:\/\/teamlead\.up\.railway\.app;/);
+  assert.match(page.headers['Content-Security-Policy'], /frame-src 'self' https:\/\/teamlead\.up\.railway\.app;/);
+  const runner = await call('/chat-runner.html', undefined, { auth: false });
+  assert.equal(runner.status, 200);
+  assert.match(runner.headers['Content-Security-Policy'], /connect-src 'none';.*sandbox allow-scripts$/);
+  assert.match(runner.headers['Content-Security-Policy'], /script-src 'sha256-[^']+';/);
   assert.equal((await call('/api/cron')).status, 401);
   assert.equal((await call('/api/state', undefined, { auth: false, bearer: process.env.CRON_SECRET })).status, 401);
   const tablero = (await import('./api/tablero.js')).default;
@@ -97,6 +102,15 @@ test('cada cédula conserva sus propios cambios, sesión e historial de guía', 
   assert.equal(login.status, 200);
   const otherDevice = login.headers['Set-Cookie'].split(';')[0];
   assert.equal((await call('/api/state', undefined, { cookie: otherDevice })).json.checked.length, 1);
+  assert.equal((await call('/api/chat/1/2-0', undefined, { cookie: otherDevice })).json.length, 2);
+  assert.equal((await call('/api/history/note', { id: 1, note: ' Repasar reduce ' }, { cookie: otherDevice })).json.historyNotes[1], 'Repasar reduce');
+  assert.equal((await call('/api/state')).json.historyNotes[1], undefined);
+  assert.equal((await call('/api/state', undefined, { cookie: otherDevice })).json.historyNotes[1], 'Repasar reduce');
+  assert.equal((await call('/api/history/note', { id: 1, note: '' }, { cookie: otherDevice })).json.historyNotes[1], undefined);
+  assert.equal((await call('/api/chat/rename', { id: 1, step: '2-0', title: 'Privado' })).status, 404);
+  assert.equal((await call('/api/chat/rename', { id: 1, step: '2-0', title: ' Repasar arreglos ' }, { cookie: otherDevice })).status, 200);
+  assert.equal((await call('/api/chat/list', undefined, { cookie: otherDevice })).json[0].title, 'Repasar arreglos');
+  assert.equal((await call('/api/focus', { id: 1, step: '2-0' }, { cookie: otherDevice })).json.title, 'Repasar arreglos');
   assert.equal((await call('/api/chat/1/2-0', undefined, { cookie: otherDevice })).json.length, 2);
   assert.equal((await call('/api/auth/logout', {}, { cookie })).status, 200);
   assert.equal((await call('/api/state', undefined, { cookie })).status, 401);
@@ -302,19 +316,21 @@ test('Google intercambia el código con PKCE y devuelve solo el acceso temporal'
   }
 });
 
-test('varias conversaciones del mismo paso se aíslan y usan el perfil del tutor en nube y navegador', async () => {
+test('varias conversaciones del mismo paso se aíslan y las instrucciones del tutor quedan en el servidor', async () => {
   const selection = { id: 1, step: '2-1' };
   const profile = { context: 'Nivel principiante', skills: 'Trazar los bucles', limits: 'Priorizar pistas' };
-  assert.equal((await call('/api/chat/tutor', profile)).status, 200);
-  assert.equal((await call('/api/chat/tutor')).json.skills, profile.skills);
+  assert.equal((await call('/api/chat/tutor', profile)).status, 404);
+  assert.equal((await call('/api/chat/tutor')).status, 404);
   const first = await call('/api/chat/new', { ...selection, title: 'Bucles con ejemplos' });
   const second = await call('/api/chat/new', { ...selection, title: 'Pruebas de bucles' });
   assert.equal(first.status, 201);
   assert.notEqual(first.json.chat, second.json.chat);
-  assert.match((await call('/api/focus', first.json)).json.instructions, /Trazar los bucles/);
+  assert.equal((await call('/api/focus', first.json)).json.instructions, undefined);
+  assert.equal((await call('/api/chat/rename', { ...first.json, title: 'Ejercicios de bucles' })).json.title, 'Ejercicios de bucles');
+  assert.equal((await call('/api/focus', first.json)).json.title, 'Ejercicios de bucles');
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
-    assert.match(JSON.parse(options.body).messages[0].content, /Priorizar pistas/);
+    assert.match(JSON.parse(options.body).messages[0].content, /Trazar los bucles con el tutor privado/);
     return Response.json({ choices: [{ message: { content: 'Empieza por una iteración.' } }] });
   };
   try {

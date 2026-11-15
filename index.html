@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Mi tablero Riwi · V1.0 Beta</title>
   <link rel="stylesheet" href="/ui.css">
+  <script defer src="/chat-blocks.js"></script>
   <script defer src="/ui.js"></script>
 </head>
 <body>
@@ -34,11 +35,26 @@
       <section id="check" aria-label="Hoy y checklist" hidden></section>
       <section id="calendar" aria-label="Calendario Ritchie" hidden></section>
       <section id="inbox" aria-label="Avisos" hidden></section>
-      <section id="history" aria-label="Historial" hidden></section>
+      <section id="history" aria-label="Historial" hidden>
+        <h2>Historial de estudio</h2>
+        <div id="history-summary" class="history-summary"></div>
+        <div class="card history-filters">
+          <label>Buscar día<input id="history-search" type="search" placeholder="Tema, semana o día"></label>
+          <label>Módulo<select id="history-module"><option value="">Todos</option></select></label>
+          <label>Estado<select id="history-status">
+            <option value="">Todos</option><option>Completado</option><option>Reabierto</option>
+            <option>En curso</option><option>Pendiente</option><option>Checklist pendiente de verificar</option>
+          </select></label>
+        </div>
+        <p id="history-count" class="muted" role="status"></p>
+        <div id="history-records" class="history-records"></div>
+      </section>
       <section id="chat" aria-label="Chat Riwi" hidden>
         <h2 id="chat-title">Chat Riwi</h2>
         <details class="card" open>
           <summary>Conversaciones</summary>
+          <label for="chat-search">Buscar conversación</label>
+          <input id="chat-search" type="search" placeholder="Título o tema">
           <ul id="chat-list" aria-label="Conversaciones guardadas"></ul>
           <form id="new-chat-form">
             <label for="new-chat-title">Título de la nueva conversación</label>
@@ -85,6 +101,8 @@
           <p id="active-model" class="muted">Conecta un modelo para enviar preguntas.</p>
           <label for="question">Tu pregunta</label>
           <textarea id="question" maxlength="4000" required placeholder="Escribe tu pregunta sobre este día"></textarea>
+          <input id="chat-file" type="file" hidden>
+          <button id="attach-chat-file" type="button" class="secondary">Adjuntar archivo de texto</button>
           <button id="send" disabled>Enviar pregunta</button>
           <button id="cancel-chat" type="button" class="secondary" hidden>Cancelar respuesta</button>
           <button id="delete-chat" type="button" class="danger" hidden>Eliminar conversación</button>

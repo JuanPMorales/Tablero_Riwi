@@ -47,6 +47,9 @@ const schema = `
   CREATE TABLE IF NOT EXISTS account_completions (
     account TEXT NOT NULL, lesson INTEGER NOT NULL, completed TEXT, PRIMARY KEY(account,lesson)
   );
+  CREATE TABLE IF NOT EXISTS account_history_notes (
+    account TEXT NOT NULL, lesson INTEGER NOT NULL, note TEXT NOT NULL, PRIMARY KEY(account,lesson)
+  );
   CREATE TABLE IF NOT EXISTS account_messages (
     id INTEGER PRIMARY KEY, account TEXT NOT NULL, lesson INTEGER NOT NULL, step TEXT NOT NULL,
     role TEXT NOT NULL, content TEXT NOT NULL, created TEXT NOT NULL
@@ -59,6 +62,10 @@ const schema = `
   CREATE TABLE IF NOT EXISTS account_threads (
     account TEXT NOT NULL, id TEXT NOT NULL, lesson INTEGER NOT NULL, step TEXT NOT NULL,
     title TEXT NOT NULL, created TEXT NOT NULL, PRIMARY KEY(account,id)
+  );
+  CREATE TABLE IF NOT EXISTS legacy_thread_titles (
+    account TEXT NOT NULL, lesson INTEGER NOT NULL, step TEXT NOT NULL,
+    title TEXT NOT NULL, PRIMARY KEY(account,lesson,step)
   );
   CREATE TABLE IF NOT EXISTS account_daily (
     account TEXT NOT NULL, date TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(account,date)
@@ -227,16 +234,23 @@ export async function openStore(path, db = localDatabase(path)) {
         lessons: ids.map(id => rows.find(day => day.id === id)).filter(Boolean) };
       return Boolean((await execute('INSERT OR IGNORE INTO account_daily VALUES (?,?,?)', [account, date, JSON.stringify(data)])).changes);
     }
+    function saveHistoryNote(id, note) {
+      if (!note) return execute('DELETE FROM account_history_notes WHERE account=? AND lesson=?', [account, id]);
+      return execute(`INSERT INTO account_history_notes VALUES (?,?,?)
+        ON CONFLICT(account,lesson) DO UPDATE SET note=excluded.note`, [account, id, note]);
+    }
     async function snapshot(now = new Date()) {
-      const [rows, checked, settings, agenda, history, notices, legacyNotices] = await Promise.all([
+      const [rows, checked, settings, agenda, history, notes, notices, legacyNotices] = await Promise.all([
         lessons(), readTicks(), personalSettings(), sessions(),
         all('SELECT lesson,completed FROM account_completions WHERE account=? ORDER BY completed DESC, lesson', [account]),
+        all('SELECT lesson,note FROM account_history_notes WHERE account=?', [account]),
         all('SELECT data FROM account_daily WHERE account=? ORDER BY date DESC', [account]),
         owner ? all('SELECT date,lesson FROM inbox ORDER BY date DESC, lesson') : [],
       ]);
       return {
         today: bogota(now).date, track: TRAYECTO, modules: MODULES, lessons: rows, checked, sessions: agenda,
         resume: resume(rows, indexTicks(checked), settings), source: source(settings), history,
+        historyNotes: Object.fromEntries(notes.map(row => [row.lesson, row.note])),
         notices: notices.map(row => JSON.parse(row.data)), legacyNotices, chatFocus: JSON.parse(settings['chat-focus'] || 'null'),
       };
     }
@@ -251,6 +265,7 @@ export async function openStore(path, db = localDatabase(path)) {
       return transaction(async () => {
         await execute('DELETE FROM account_messages WHERE account=? AND lesson=? AND step=?', [account, id, step]);
         if (chat) await execute('DELETE FROM account_threads WHERE account=? AND id=?', [account, chat]);
+        else await execute('DELETE FROM legacy_thread_titles WHERE account=? AND lesson=? AND step=?', [account, id, step]);
         if (owner) {
           await execute('DELETE FROM messages WHERE lesson=? AND step=?', [id, step]);
           if (!step) await execute('DELETE FROM chat WHERE lesson=?', [id]);
@@ -269,6 +284,9 @@ export async function openStore(path, db = localDatabase(path)) {
           if (!legacy.some(item => item.id === row.id && !item.step)) legacy.push(row);
         }
       }
+      const titles = new Map((await all('SELECT lesson,step,title FROM legacy_thread_titles WHERE account=?', [account]))
+        .map(row => [row.lesson + '/' + row.step, row.title]));
+      for (const row of legacy) row.title = titles.get(row.id + '/' + row.step);
       return [...custom, ...legacy].sort((a, b) => (b.created || '').localeCompare(a.created || ''));
     }
     async function createChat(id, step, title) {
@@ -277,6 +295,21 @@ export async function openStore(path, db = localDatabase(path)) {
       return { id, step, chat, title };
     }
     const findChat = chat => get('SELECT lesson AS id,step,title FROM account_threads WHERE account=? AND id=?', [account, chat]);
+    const legacyChatTitle = async (id, step) => (await get(
+      'SELECT title FROM legacy_thread_titles WHERE account=? AND lesson=? AND step=?', [account, id, step]))?.title;
+    async function renameChat(id, step, chat, title) {
+      if (chat) return Boolean((await execute(
+        'UPDATE account_threads SET title=? WHERE account=? AND id=? AND lesson=? AND step=?',
+        [title, account, chat, id, step])).changes);
+      return transaction(async () => {
+        const message = await get('SELECT 1 FROM account_messages WHERE account=? AND lesson=? AND step=? LIMIT 1', [account, id, step]);
+        const olderMessage = !message && owner && !step && await get('SELECT 1 FROM chat WHERE lesson=? LIMIT 1', [id]);
+        if (!message && !olderMessage) return false;
+        await execute(`INSERT INTO legacy_thread_titles VALUES (?,?,?,?)
+          ON CONFLICT(account,lesson,step) DO UPDATE SET title=excluded.title`, [account, id, step, title]);
+        return true;
+      });
+    }
     function insertChat(id, step, prompt, answer) {
       const now = new Date().toISOString();
       return execute('INSERT INTO account_messages(account,lesson,step,role,content,created) VALUES(?,?,?,?,?,?),(?,?,?,?,?,?)',
@@ -301,7 +334,7 @@ export async function openStore(path, db = localDatabase(path)) {
       });
     }
     return { find, ticks, applyTicks, hasNotice, makeNotice, snapshot, chatHistory, chatRevision, deleteChat, saveChat, guideHistory, saveGuide,
-      listChats, createChat, findChat,
+      saveHistoryNote, listChats, createChat, findChat, legacyChatTitle, renameChat,
       focus: (id, step, chat) => setPersonal('chat-focus', JSON.stringify({ id, step, ...(chat ? { chat } : {}) })) };
   }
   function saveLesson(id, data) {
