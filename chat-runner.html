@@ -42,11 +42,14 @@
           };
         }
         async function run() {
+          const exports = {};
+          const module = { exports };
           try {
             const result = await (async () => {
               ${event.data.code}
             })();
             if (result !== undefined) console.log(result);
+            else if (lines === 0 && (module.exports !== exports || Object.keys(exports).length)) console.log(module.exports);
             send({ done: true });
           } catch (error) {
             send({ error: String(error).slice(0, 2000) });

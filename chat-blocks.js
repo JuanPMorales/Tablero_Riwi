@@ -36,12 +36,38 @@
       return '<pre class="chat-code"><code class="hljs">' + highlight(value, kind.id) + '</code></pre>';
     },
   });
+  markdown.inline.ruler.before('html_inline', 'chat_break', (state, silent) => {
+    if (state.src[state.pos] !== '<') return false;
+    const match = /^<br[ \t]*\/?>/i.exec(state.src.slice(state.pos, state.posMax));
+    if (!match) return false;
+    if (!silent) state.push('hardbreak', 'br', 0);
+    state.pos += match[0].length;
+    return true;
+  });
   markdown.renderer.rules.image = (tokens, index) => escapeHtml(tokens[index].content);
   markdown.renderer.rules.link_open = (tokens, index, options, env, renderer) => {
     tokens[index].attrSet('target', '_blank');
     tokens[index].attrSet('rel', 'noopener noreferrer');
     return renderer.renderToken(tokens, index, options);
   };
+  for (const type of ['fence', 'code_block']) {
+    const render = markdown.renderer.rules[type];
+    markdown.renderer.rules[type] = (tokens, index, options, env, renderer) => {
+      if (!env.chatSnippets) return render(tokens, index, options, env, renderer);
+      env.chatSnippets.push(describeSnippet(tokens[index]));
+      return '<div data-chat-snippet="' + (env.chatSnippets.length - 1) + '"></div>\n';
+    };
+  }
+
+  function describeSnippet(token, filename = '') {
+    const value = token.content.replace(/\n$/, '');
+    return { value, filename, kind: language(token.info || detectCode(value)), standalone: true };
+  }
+
+  function renderDocument(value) {
+    const chatSnippets = [];
+    return { html: markdown.render(value, { chatSnippets }), snippets: chatSnippets };
+  }
 
   function detectCode(text) {
     const value = text.trim();
@@ -51,7 +77,7 @@
     if (/^<(?:!doctype html|[a-z][\w-]*(?:\s|\/?>))/i.test(value)) return 'html';
     if (/^(?:#!.*python|(?:from\s+[\w.]+\s+import|import\s+[\w.]+[ \t]*(?:\n|$)|(?:async\s+)?def\s+\w+\(|print\())/.test(value)) return 'python';
     if (/^(?:(?:const|let|var)\s+[$\w]+\s*=|(?:async\s+)?function\s|console\.\w+\(|(?:for|if|while)\s*\(|(?:module\.exports|exports\.\w+)\s*=|import\s.*\sfrom\s)/.test(value)) return 'javascript';
-    if (/^#!.*(?:ba|z)?sh\b/.test(value)) return 'bash';
+    if (/^#!.*(?:ba|z)?sh\b/.test(value) || /^(?:(?:node|npm|npx|git|python3?|pip3?) [^\n]+(?:\n|$))+$/.test(value)) return 'bash';
     if (/^(?:[:.#][\w-]+|[a-z]+)\s*\{[\s\S]*:[\s\S]*\}/.test(value)) return 'css';
     return 'plaintext';
   }
@@ -61,16 +87,13 @@
     const isAttachment = parsed.length === 4 && parsed[1].type === 'inline'
       && /^Archivo: [^\n]+$/.test(parsed[1].content) && parsed[3].type === 'fence';
     const fence = isAttachment ? parsed[3] : parsed.length === 1 && parsed[0].type === 'fence' ? parsed[0] : null;
-    if (fence) {
-      const filename = isAttachment ? parsed[1].content.slice(9) : '';
-      const value = fence.content.replace(/\n$/, '');
-      return { value, filename, kind: language(fence.info || detectCode(value)) };
-    }
+    if (fence) return describeSnippet(fence, isAttachment ? parsed[1].content.slice(9) : '');
     const document = parsed.some(token => token.type === 'fence' || token.type === 'heading_open');
     const detected = document ? 'plaintext' : detectCode(content);
     const formatted = parsed.some(token => !['paragraph_open', 'paragraph_close', 'inline'].includes(token.type)
       || token.children?.some(child => child.type !== 'text' && child.type !== 'softbreak'));
-    return { value: content, filename: '', kind: language(detected === 'plaintext' && formatted ? 'markdown' : detected) };
+    return { value: content, filename: '', kind: language(detected === 'plaintext' && formatted ? 'markdown' : detected),
+      standalone: detected !== 'plaintext' };
   }
 
   function wrap(text, name) {
@@ -151,7 +174,7 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function message({ value, filename, kind }, report) {
+  function workspace({ value, filename, kind }, report) {
     const block = element('section', undefined, 'chat-workspace');
     const toolbar = element('div', undefined, 'chat-workspace-tools');
     const title = element('div', undefined, 'chat-workspace-title');
@@ -234,18 +257,7 @@
       }
     }
 
-    const run = button('Ejecutar', () => {
-      if (kind.id !== 'markdown') return execute(field.value, kind);
-      const snippets = markdown.parse(field.value, {}).filter(token => token.type === 'fence' || token.type === 'code_block')
-        .map(token => ({ text: token.content, kind: language(token.info || detectCode(token.content)) }));
-      if (snippets.length === 1) return execute(snippets[0].text, snippets[0].kind);
-      if (!snippets.length) return execute(field.value, kind);
-      const choices = element('div', undefined, 'row');
-      snippets.forEach((snippet, index) => choices.append(
-        button('Ejemplo ' + (index + 1) + ' · ' + snippet.kind.name, () => execute(snippet.text, snippet.kind))));
-      output.replaceChildren(element('p', 'Elige el ejemplo que quieres probar.'), choices);
-      output.hidden = false;
-    }, 'chat-run-action');
+    const run = button('Ejecutar', () => execute(field.value, kind), 'chat-run-action');
     for (const [mode, label] of [['view', 'Ver'], ['source', 'Código'], ['edit', 'Editar']]) {
       selected.set(mode, button(label, () => show(mode)));
     }
@@ -265,6 +277,19 @@
     return block;
   }
 
-  globalThis.RiwiChatBlocks = { describe, highlight, markdown, wrap, message };
+  function message(content, report) {
+    const description = describe(content);
+    if (description.standalone) return workspace(description, report);
+    if (description.kind.id === 'plaintext') return element('div', content, 'chat-message-text');
+    const formatted = element('div', undefined, 'chat-message-text chat-markdown');
+    const { html, snippets } = renderDocument(content);
+    formatted.innerHTML = html;
+    for (const slot of formatted.querySelectorAll('[data-chat-snippet]')) {
+      slot.replaceWith(workspace(snippets[Number(slot.dataset.chatSnippet)], report));
+    }
+    return formatted;
+  }
+
+  globalThis.RiwiChatBlocks = { describe, highlight, markdown, renderDocument, wrap, message };
 })();
 

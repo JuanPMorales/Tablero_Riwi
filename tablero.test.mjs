@@ -101,7 +101,7 @@ test('el mensaje conserva el documento Markdown y resalta bloques sin interpreta
     './node_modules/@highlightjs/cdn-assets/highlight.min.js', './chat-blocks.js']) {
     runInNewContext(readFileSync(new URL(path, import.meta.url), 'utf8'), browser);
   }
-  const { describe, highlight, markdown, wrap } = browser.RiwiChatBlocks;
+  const { describe, highlight, markdown, renderDocument, wrap } = browser.RiwiChatBlocks;
   const tick = String.fromCharCode(96);
   const example = [
     '# Café Origen – Análisis de ventas', '', '## Descripción', 'Se usa **Node.js LTS** y ' + tick + 'require' + tick,
@@ -109,6 +109,7 @@ test('el mensaje conserva el documento Markdown y resalta bloques sin interpreta
   ].join('\n');
   const message = describe(example);
   assert.equal(message.kind.id, 'markdown');
+  assert.equal(message.standalone, false);
   assert.equal(message.value, example);
   const rendered = markdown.render(message.value);
   assert.match(rendered, /<h1>Café Origen – Análisis de ventas<\/h1>/);
@@ -117,6 +118,21 @@ test('el mensaje conserva el documento Markdown y resalta bloques sin interpreta
   const attachment = describe('Archivo: café.md\n\n' + wrap(example, 'café.md'));
   assert.equal(attachment.filename, 'café.md');
   assert.equal(attachment.value, example);
+  assert.equal(attachment.standalone, true);
+  const answer = [
+    '# Objetivo del paso', '', '| Archivo | Contenido |', '|---|---|', '| café.md | Descripción<br>Uso |', '',
+    tick.repeat(3) + 'js', 'module.exports = [1, 2];', tick.repeat(3), '',
+    'Abre café.md y escribe ' + tick + 'require' + tick + ' como código en línea.', '',
+    tick.repeat(3) + 'bash', 'node src/analitica.js', tick.repeat(3),
+  ].join('\n');
+  const { html, snippets } = renderDocument(answer);
+  assert.match(html, /<h1>Objetivo del paso<\/h1>[\s\S]*<table>[\s\S]*Descripción<br>\nUso/);
+  assert.match(html, /data-chat-snippet="0"[\s\S]*<code>require<\/code>[\s\S]*data-chat-snippet="1"/);
+  assert.equal(snippets.length, 2);
+  assert.equal(snippets[0].value, 'module.exports = [1, 2];');
+  assert.equal(snippets[1].kind.id, 'bash');
+  assert.equal(renderDocument('Texto con ' + tick + 'código en línea' + tick).snippets.length, 0);
+  assert.equal(describe('Hola, esta es una explicación.').standalone, false);
   assert.equal(describe('print("Café")').kind.id, 'python');
   assert.equal(describe('const total = 6;').kind.id, 'javascript');
   assert.equal(describe('<h1>Café</h1>').kind.id, 'html');
@@ -158,6 +174,8 @@ test('los entornos de prueba devuelven la salida de JavaScript y Python', async 
   }
   const js = await execute('/chat-runner.html', 'console.log(6 * 7)');
   assert.equal(js.lines.join().trim(), '42', js.error);
+  const commonJS = await execute('/chat-runner.html', 'module.exports = [{ producto: "Café" }];');
+  assert.equal(commonJS.lines.join().trim(), '[{"producto":"Café"}]', commonJS.error);
   const py = await execute('/chat-python-runner.html', 'print("Café", sum([6, 36]))');
   assert.equal(py.lines.join().trim(), 'Café 42', py.error);
   const error = await execute('/chat-python-runner.html', 'print(nombre_inexistente)');

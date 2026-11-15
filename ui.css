@@ -86,6 +86,9 @@ fieldset{min-inline-size:0;margin-inline:0}
 .chat-workspace-body>button{margin:9px 12px}
 .chat-plain,.chat-markdown{padding:clamp(13px,3vw,24px)}
 .chat-plain{white-space:pre-wrap}
+.chat-message-text.chat-markdown{padding:4px 0}
+.chat-message-text:not(.chat-markdown){white-space:pre-wrap}
+.chat-message-text .chat-workspace{margin:12px 0}
 .chat-markdown> :last-child{margin-bottom:0}
 .chat-markdown h1{font-size:1.55rem;line-height:1.2;margin:0 0 14px}
 .chat-markdown h2{font-size:1.22rem;line-height:1.25;margin:1em 0 .45em}
@@ -93,9 +96,10 @@ fieldset{min-inline-size:0;margin-inline:0}
 .chat-markdown ul,.chat-markdown ol{margin:0 0 12px;padding-inline-start:1.65em}
 .chat-markdown li+li{margin-top:.3em}
 .chat-markdown blockquote{margin:12px 0;padding:9px 12px;border-left:3px solid #a5c8e1;background:#f0f7fc}
-.chat-markdown p code,.chat-markdown li code,.chat-markdown td code{background:#e9f1f8;color:#153853;padding:.13em .32em;border-radius:4px;font-size:.9em}
+.chat-markdown :not(pre)>code{background:#e9f1f8;color:#153853;padding:.13em .32em;border-radius:4px;font-size:.9em}
 .chat-markdown .chat-code,.chat-workspace-result .chat-code,.chat-workspace-result>pre{border-radius:8px}
 .chat-markdown .chat-code{margin:12px 0}
+.chat-markdown .chat-workspace-body>.chat-code,.chat-markdown .chat-editor>.chat-code{margin:0;border-radius:0}
 .chat-markdown table{display:block;overflow:auto;border-collapse:collapse;margin:12px 0}
 .chat-markdown th,.chat-markdown td{padding:5px 10px;border:1px solid var(--line);text-align:start}
 .chat-markdown th{background:#edf4fa}
