@@ -414,6 +414,8 @@ function renderCheck() {
       else openActivities.delete(i);
       opened.set(d.id, openActivities);
     };
+    if (context) card.append(box('section', 'quest-meta activity-context',
+      el('h3', 'Contexto del minirreto'), el('p', context, 'copy')));
     steps.forEach((task, j) => {
       const key = ids[j];
       const check = checkbox(task, progress.marked.has(key), false, value => setTicks(d.id, [key], value));
@@ -430,7 +432,7 @@ function renderCheck() {
       card.append(box('div', step === key ? 'step current' : 'step', check,
         box('div', '', selectStep, el('small', 'Paso ' + (j + 1) + (progress.marked.has(key) ? ' · Completado' : '')))));
     });
-    if (meta) card.append(details('Contexto, requisitos y entrega', el('p', context, 'copy'), el('p', meta.requirements, 'copy'),
+    if (meta) card.append(details('Requisitos y entrega', el('p', meta.requirements, 'copy'),
       el('p', meta.criteria, 'copy'), el('p', meta.deliverable, 'copy')));
     card.append(checkbox('Completar toda la actividad', count === ids.length, count > 0 && count < ids.length,
       value => setTicks(d.id, ids, value)));
