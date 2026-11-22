@@ -209,6 +209,11 @@ async function request(req, res, pathname) {
   if (req.method === 'GET' && assets.has(path)) return serveAsset(res, path);
   const canEdit = account === ((await database.contentOwner()) || RIWI_OWNER_ACCOUNT_ID);
   const store = database.forAccount(account);
+  if (path === '/api/auth/profile') {
+    if (req.method === 'GET') return json(res, 200, await store.readProfile());
+    if (req.method === 'POST') return json(res, 200, await store.saveProfile(await body(req)));
+    throw fault(405, 'Método no permitido.');
+  }
   if (req.method === 'GET' && path === '/health') return json(res, 200, { ok: true });
   if (req.method === 'GET' && path === '/api/state') {
     if (onVercel && process.env.RIWI_SCHEDULER !== '0' && !await store.hasNotice(bogota().date)) {

@@ -29,7 +29,7 @@ La contraseña debe cumplir todas estas condiciones, verificadas tanto en el for
 
 El formulario indica cuáles condiciones faltan. Para iniciar sesión solo se necesitan cédula y contraseña. Las cuentas anteriores conservan su contraseña y acceso; no se fuerza un nuevo registro. El sistema no verifica la identidad de la cédula, la propiedad del correo ni el celular mediante códigos.
 
-Las contraseñas se verifican con un hash scrypt y sal aleatoria. Las sesiones utilizan cookies HttpOnly y SameSite y, en producción, Secure. El perfil se guarda en una tabla privada independiente. El nombre y clan mostrados corresponden a la cuenta conectada.
+Las contraseñas se verifican con un hash scrypt y sal aleatoria. Las sesiones utilizan cookies HttpOnly y SameSite y, en producción, Secure. El perfil se guarda en una tabla privada independiente. El nombre y clan mostrados corresponden a la cuenta conectada. En **Mi cuenta → Mi perfil** puedes completar los datos de una cuenta antigua y modificar correo, celular y clan. El nombre completo se guarda una sola vez y después queda bloqueado también en el servidor. La cédula permanece como identificador de acceso y no se puede cambiar desde el perfil.
 
 ## Contenido compartido y permisos
 
@@ -88,9 +88,9 @@ El tablero no descarga automáticamente las fichas privadas. En Moodle recorre S
 
 ## Notificaciones personalizadas
 
-Desde el buzón puedes seleccionar los días de la semana y una hora en `America/Bogota`. Sin días seleccionados no se generan avisos. Pausar conserva el historial y bloquea avisos nuevos; reanudar respeta el horario guardado. Las preferencias persisten al recargar y volver a iniciar sesión.
+Desde el buzón puedes seleccionar los días de la semana y una hora en `America/Bogota`. Sin días seleccionados no se generan avisos. Pausar conserva los avisos que aún no hayan vencido y bloquea avisos nuevos; reanudar respeta el horario guardado. Las preferencias persisten al recargar y volver a iniciar sesión.
 
-Hay como máximo un aviso por cuenta y fecha. Incluye la programación disponible y el punto personal para continuar. Eliminar aviso lo retira de tu buzón de forma persistente; no afecta el aviso de otros usuarios y no se regenera durante esa misma fecha. Internamente se conserva un registro de descarte para evitar duplicados.
+Hay como máximo un aviso por cuenta y fecha. Incluye la programación disponible y el punto personal para continuar. Eliminar aviso lo retira de tu buzón de forma persistente; no afecta el aviso de otros usuarios y no se regenera durante esa misma fecha. Cada aviso vence exactamente 24 horas después de su fecha y hora de envío (`created`), no al cambiar el día. El buzón lo oculta al vencer; el servidor retira su contenido al consultar los datos o ejecutar la limpieza programada. Los avisos antiguos sin hora se consideran enviados a las 05:00 de Colombia de su fecha. Internamente solo se conserva el identificador de cuenta y fecha del descarte para evitar duplicados; el progreso, las fichas y los mensajes no se borran.
 
 Los avisos son internos: no se envían correos, SMS ni notificaciones push. Con una pestaña visible se comprueba el horario cada 30 segundos. Un servidor local encendido revisa cada 15 segundos. Vercel tiene un cron diario a las 10:00 UTC; los horarios personales posteriores se comprueban al abrir o actualizar la aplicación. El cron diario no garantiza entrega puntual a cualquier hora si la aplicación está cerrada. `RIWI_SCHEDULER=0` desactiva la generación automática en el servidor.
 
@@ -128,3 +128,7 @@ Para iniciar otra instalación desde cero, crea una base independiente y cambia 
 ## Datos privados
 
 No subas credenciales, cookies, tokens, cédulas reales, perfiles, exportaciones de Moodle, SQL con datos ni copias de bases a GitHub. `.gitignore` excluye `.env`, `data/`, `backups/` y bases SQLite. Guarda el material del curso y los perfiles solo en los servicios privados previstos para la aplicación.
+
+## Paleta de la aplicación
+
+Los controles y estados usan exclusivamente la paleta definida en `ui.css`: principal `#382CCE`, destacado `#440885`, selección `#8660E7`, menú `#271044`, progreso `#43CADB`, fondo `#F6F5FA`, tarjetas `#FFFFFF`, etiquetas `#F0EBFC`, texto `#24133E`, texto secundario `#777189`, texto del menú `#C9B8E1`, bordes `#E8E3F0`, confirmación `#E4F7F8` con texto `#17636E`, y errores o eliminación `#B33856` sobre `#FFF0F3`.

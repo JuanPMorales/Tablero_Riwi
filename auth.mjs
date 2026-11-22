@@ -7,6 +7,16 @@ const options = { N: 2 ** 15, r: 8, p: 3, maxmem: 64 * 1024 * 1024 };
 const lifetime = 60 * 60 * 24 * 14;
 const windowMs = 15 * 60 * 1000;
 export const CLANS = ['Gosling', 'Nakamoto', 'Ritchie', 'Tesla', 'Turing', 'Ubuntu', 'Van Rossum'];
+export function validateProfile(payload) {
+  const fullName = typeof payload.fullName === 'string' ? payload.fullName.trim() : '';
+  const email = typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '';
+  const phone = typeof payload.phone === 'string' ? payload.phone.trim() : '';
+  if (fullName.length < 3 || fullName.length > 160 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254
+    || !/^\+?[0-9 ()-]{7,24}$/.test(phone) || phone.replace(/\D/g, '').length < 7 || !CLANS.includes(payload.clan)) {
+    throw Object.assign(new Error('Completa tu nombre, correo personal, celular y clan válido.'), { status: 400 });
+  }
+  return { fullName, email, phone, clan: payload.clan };
+}
 export function passwordRules(password, document) {
   return [typeof password === 'string' && password.length >= 8 && password.length <= 72,
     /\p{L}/u.test(password || ''), /[0-9]/.test(password || ''),
@@ -60,14 +70,8 @@ export function accountAuth(db, { secure }) {
     if (register) {
       if (!passwordRules(password, document).every(Boolean)) fail(400, 'La contraseña debe tener entre 8 y 72 caracteres, una letra, un número, no contener tu cédula ni espacios al inicio o al final.');
       if (payload.confirmation !== password) fail(400, 'Las contraseñas no coinciden.');
-      const fullName = typeof payload.fullName === 'string' ? payload.fullName.trim() : '';
-      const email = typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '';
-      const phone = typeof payload.phone === 'string' ? payload.phone.trim() : '';
-      if (fullName.length < 3 || fullName.length > 160 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254
-        || !/^\+?[0-9 ()-]{7,24}$/.test(phone) || phone.replace(/\D/g, '').length < 7 || !CLANS.includes(payload.clan)) {
-        fail(400, 'Completa tu nombre, correo personal, celular y clan válido.');
-      }
-      profile = [fullName, email, phone, payload.clan];
+      const values = validateProfile(payload);
+      profile = [values.fullName, values.email, values.phone, values.clan];
     }
     const addressKey = digest(address).toString('hex');
     const documentKey = digest(document).toString('hex');

@@ -77,3 +77,48 @@ test('las fichas compartidas se actualizan para todos y las casillas siguen sien
     assert.equal((await first.snapshot()).checked.length, 1);
   } finally { store.close(); }
 });
+
+test('avisos vencen exactamente a las 24 horas y se retira su contenido sin regenerarlos', async () => {
+  const store = await openStore(':memory:');
+  try {
+    const first = store.forAccount('primera');
+    const second = store.forAccount('segunda');
+    const sent = new Date('2026-11-22T23:45:00Z');
+    await first.makeNotice(sent);
+    await second.makeNotice(new Date('2026-11-23T00:15:00Z'));
+    await first.applyTicks(1, { '0-0': true });
+    assert.equal((await first.snapshot(new Date('2026-11-23T23:44:59.999Z'))).notices.length, 1);
+    const expired = await first.snapshot(new Date('2026-11-23T23:45:00Z'));
+    assert.equal(expired.notices.length, 0);
+    assert.equal(expired.checked.length, 1);
+    assert.equal((await second.snapshot(new Date('2026-11-23T23:45:00Z'))).notices.length, 1);
+    assert.equal((await store.db.execute('SELECT count(*) n FROM account_daily WHERE account=?', ['primera'])).rows[0].n, 0);
+    assert.equal(await first.hasNotice('2026-11-22'), true);
+    assert.equal(await first.makeNotice(sent), false);
+  } finally { store.close(); }
+});
+
+test('cuenta antigua completa el nombre una sola vez y solo modifica su propio contacto', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'riwi-profile-'));
+  const path = join(directory, 'test.sqlite');
+  let store = await openStore(path);
+  try {
+    await store.db.execute('INSERT INTO accounts VALUES (?,?,?,?)', ['antigua', '9900000001', 'fixture', 'fixture']);
+    await store.db.execute('INSERT INTO accounts VALUES (?,?,?,?)', ['otra', '9900000002', 'fixture', 'fixture']);
+    const account = store.forAccount('antigua');
+    assert.equal((await account.readProfile()).nameLocked, false);
+    const profile = { fullName: 'Persona Ejemplo', email: 'ejemplo@example.test', phone: '3000000000', clan: 'Turing' };
+    const race = await Promise.allSettled([account.saveProfile(profile), account.saveProfile({ ...profile, fullName: 'Otro Nombre' })]);
+    assert.equal(race.filter(result => result.status === 'fulfilled').length, 1);
+    assert.equal(race.find(result => result.status === 'rejected').reason.status, 409);
+    assert.equal((await account.saveProfile({ ...profile, phone: '3000000010', clan: 'Ubuntu', account: 'otra' })).phone, '3000000010');
+    await assert.rejects(account.saveProfile({ ...profile, fullName: '' }), { status: 400 });
+    assert.equal((await store.forAccount('otra').readProfile()).fullName, '');
+    store.close(); store = await openStore(path);
+    const saved = await store.forAccount('antigua').readProfile();
+    assert.equal(saved.nameLocked, true);
+    assert.equal(saved.fullName, profile.fullName);
+    assert.equal(saved.phone, '3000000010');
+    await assert.rejects(store.forAccount('antigua').saveProfile({ ...profile, fullName: 'Reemplazo' }), { status: 409 });
+  } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+});

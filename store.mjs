@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { AGENDA, MODULES, RITCHIE_AGENDA, TRAYECTO, VERIFIED, ZONE, agendaModule, seedLesson } from './catalog.mjs';
 import { localDatabase } from './database.mjs';
+import { validateProfile } from './auth.mjs';
 
 const clock = new Intl.DateTimeFormat('en-CA', {
   timeZone: ZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
@@ -241,7 +242,32 @@ export async function openStore(path, db = localDatabase(path)) {
         return { next, ...(drop.length ? { selected: id } : {}) };
       });
     }
-    const hasNotice = async date => Boolean(await get('SELECT 1 FROM account_daily WHERE account=? AND date=?', [account, date]));
+    const hasNotice = async date => Boolean(await get('SELECT 1 FROM account_daily WHERE account=? AND date=? UNION ALL SELECT 1 FROM account_notice_dismissals WHERE account=? AND date=? LIMIT 1', [account, date, account, date]));
+    async function expireNotices(now = new Date()) {
+      const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+      return transaction(async () => {
+        const expired = "account=? AND julianday(COALESCE(json_extract(data,'$.created'),date || 'T05:00:00-05:00'))<=julianday(?)";
+        await execute('INSERT OR IGNORE INTO account_notice_dismissals SELECT account,date FROM account_daily WHERE ' + expired, [account, cutoff]);
+        await execute('DELETE FROM account_daily WHERE ' + expired, [account, cutoff]);
+        if (owner) await execute("DELETE FROM inbox WHERE julianday(date || 'T05:00:00-05:00')<=julianday(?)", [cutoff]);
+      });
+    }
+    async function readProfile() {
+      const row = await get('SELECT a.document,p.full_name AS fullName,p.email,p.phone,p.clan FROM accounts a LEFT JOIN account_profiles p ON p.account=a.id WHERE a.id=?', [account]);
+      return row ? { document: row.document, fullName: row.fullName || '', email: row.email || '', phone: row.phone || '', clan: row.clan || '', nameLocked: Boolean(row.fullName?.trim()) } : null;
+    }
+    function saveProfile(payload) {
+      return transaction(async () => {
+        const previous = await readProfile();
+        if (!previous) throw Object.assign(new Error('Cuenta no encontrada.'), { status: 404 });
+        const values = validateProfile({ ...payload, fullName: payload.fullName ?? previous.fullName });
+        if (previous.nameLocked && values.fullName !== previous.fullName) throw Object.assign(new Error('El nombre completo solo se puede guardar una vez.'), { status: 409 });
+        await execute(`INSERT INTO account_profiles VALUES (?,?,?,?,?) ON CONFLICT(account) DO UPDATE SET
+          full_name=excluded.full_name,email=excluded.email,phone=excluded.phone,clan=excluded.clan`,
+        [account, values.fullName, values.email, values.phone, values.clan]);
+        return readProfile();
+      });
+    }
     function setNotificationsPaused(paused) {
       return transaction(() => setPersonal('notifications-paused', paused ? '1' : '0'));
     }
@@ -256,6 +282,7 @@ export async function openStore(path, db = localDatabase(path)) {
         const preference = schedule(settings);
         const [h, m] = preference.time.split(':').map(Number);
         if (!preference.days.includes(new Date(date + 'T12:00:00Z').getUTCDay()) || hour * 60 + minute < h * 60 + m) return false;
+        if (await hasNotice(date)) return false;
         const cursor = resume(rows, indexTicks(marks), settings);
         const scheduled = agenda.filter(row => row.date === date);
         const ids = [...new Set(scheduled.map(row => row.lesson).filter(Boolean))];
@@ -271,6 +298,7 @@ export async function openStore(path, db = localDatabase(path)) {
         ON CONFLICT(account,lesson) DO UPDATE SET note=excluded.note`, [account, id, note]);
     }
     async function snapshot(now = new Date()) {
+      await expireNotices(now);
       const [rows, checked, settings, agenda, history, notes, notices, legacyNotices] = await Promise.all([
         lessons(), readTicks(), personalSettings(), sessions(),
         all('SELECT lesson,completed FROM account_completions WHERE account=? ORDER BY completed DESC, lesson', [account]),
@@ -367,7 +395,7 @@ export async function openStore(path, db = localDatabase(path)) {
         return chatHistory(id, step);
       });
     }
-    return { find, ticks, applyTicks, setNotificationsPaused, setNotificationSchedule, dismissNotice, hasNotice, makeNotice, snapshot, chatHistory, chatRevision, deleteChat, saveChat, guideHistory, saveGuide,
+    return { find, ticks, applyTicks, readProfile, saveProfile, expireNotices, setNotificationsPaused, setNotificationSchedule, dismissNotice, hasNotice, makeNotice, snapshot, chatHistory, chatRevision, deleteChat, saveChat, guideHistory, saveGuide,
       saveHistoryNote, listChats, createChat, findChat, legacyChatTitle, renameChat,
       focus: (id, step, chat) => setPersonal('chat-focus', JSON.stringify({ id, step, ...(chat ? { chat } : {}) })) };
   }
@@ -434,6 +462,7 @@ export async function openStore(path, db = localDatabase(path)) {
     const accounts = await all(`SELECT id FROM (SELECT 'owner' AS id UNION SELECT id FROM accounts)
       WHERE NOT EXISTS (SELECT 1 FROM account_daily WHERE account=id AND date=?)`, [date]);
     let created = false;
+    for (const { id } of await all("SELECT 'owner' AS id UNION SELECT id FROM accounts")) await forAccount(id).expireNotices(now);
     for (const { id } of accounts) created = await forAccount(id).makeNotice(now) || created;
     return created;
   }

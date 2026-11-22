@@ -63,6 +63,7 @@ test('autenticación de las páginas, recursos y API; protección de origen', as
   ownerCookie = registration.headers['Set-Cookie'].split(';')[0];
   const fixture = await openStore(process.env.RIWI_DB_PATH);
   await fixture.db.execute("UPDATE logins SET account='owner'");
+  await fixture.db.execute("UPDATE account_profiles SET account='owner'");
   await fixture.db.execute("UPDATE accounts SET id='owner' WHERE document=?", [ownerDetails.document]);
   await fixture.db.execute("INSERT INTO settings VALUES ('content-owner-account','owner')");
   fixture.close();
@@ -505,7 +506,7 @@ test('migración de una base Beta con fichas y conversaciones previas', async ()
   try {
     const snapshot = await current.snapshot();
     assert.deepEqual(snapshot.resume, { id: 1, step: '0-1' });
-    assert.deepEqual(snapshot.legacyNotices.map(row => ({ ...row })), [{ date: '2026-11-12', lesson: 2 }]);
+    assert.deepEqual(snapshot.legacyNotices, [], 'Los avisos antiguos vencieron; las conversaciones se conservan');
     assert.equal((await current.chatHistory(1, ''))[0].content, 'Guía conservada');
   } finally {
     current.close();
@@ -631,10 +632,10 @@ test('la pausa y el retorno sobreviven al reinicio sin afectar otros módulos ni
     store.close();
     store = await openStore(path);
     const reopened = store.forAccount('persistent-fixture');
-    assert.deepEqual((await reopened.snapshot()).resume, { id: second, step: '0-1' });
-    assert.equal((await reopened.snapshot()).notificationsPaused, true);
+    assert.deepEqual((await reopened.snapshot(new Date('2026-11-21T13:00:00Z'))).resume, { id: second, step: '0-1' });
+    assert.equal((await reopened.snapshot(new Date('2026-11-21T13:00:00Z'))).notificationsPaused, true);
     assert.equal(await reopened.makeNotice(new Date('2026-11-22T12:00:00Z')), false);
-    assert.equal((await reopened.snapshot()).notices.length, 1);
+    assert.equal((await reopened.snapshot(new Date('2026-11-21T13:00:00Z'))).notices.length, 1);
     await reopened.applyTicks(second, null, false, true);
     store.close();
     store = await openStore(path);
@@ -675,6 +676,16 @@ test('API restringe cargas y valida horarios y eliminación de avisos', async ()
     assert.equal((await call('/api/notifications', invalid)).status, 400);
   }
   assert.equal((await call('/api/notifications', { dismissDate: '2026-11-22' })).status, 200);
+});
+
+test('perfil privado valida cambios de nombre y conserva contacto por cuenta', async () => {
+  assert.equal((await call('/api/auth/profile', undefined, { auth: false })).status, 401);
+  const before = (await call('/api/auth/profile')).json;
+  assert.equal(before.nameLocked, true);
+  assert.equal(before.fullName, ownerDetails.fullName);
+  assert.equal((await call('/api/auth/profile', { ...before, fullName: 'Nombre distinto' })).status, 409);
+  assert.equal((await call('/api/auth/profile', { ...before, phone: '3000000099' })).status, 200);
+  assert.equal((await call('/api/auth/profile')).json.phone, '3000000099');
 });
 
 test.after(async () => {

@@ -88,6 +88,53 @@ let connection, googlePending, threadHistory = [], threadRevision, ollamaRequest
 let activeTab = 'check';
 let readThroughDate = '';
 let mutationQueue = Promise.resolve();
+$('edit-profile').onclick = async () => {
+  const dialog = $('profile-dialog');
+  try {
+    const profile = await api('/api/auth/profile');
+    const form = el('form');
+    const fullName = field(form, 'Nombre completo', 'fullName', profile.fullName);
+    fullName.minLength = 3;
+    fullName.maxLength = 160;
+    fullName.readOnly = profile.nameLocked;
+    form.append(el('p', profile.nameLocked ? 'Tu nombre ya está registrado y no se puede modificar.' : 'Puedes guardar tu nombre una sola vez. Revísalo antes de confirmar.', 'muted'));
+    const email = field(form, 'Correo personal', 'email', profile.email, { type: 'email' });
+    email.maxLength = 254;
+    const phone = field(form, 'Celular', 'phone', profile.phone, { type: 'tel' });
+    phone.minLength = 7;
+    phone.maxLength = 24;
+    const clan = field(form, 'Clan', 'clan', profile.clan, { choices: [['', 'Selecciona tu clan'],
+      ...['Gosling', 'Nakamoto', 'Ritchie', 'Tesla', 'Turing', 'Ubuntu', 'Van Rossum'].map(value => [value, value])] });
+    const documentField = field(form, 'Cédula (no se puede cambiar)', 'document', profile.document);
+    documentField.readOnly = true;
+    const message = el('p', '', 'status');
+    message.setAttribute('role', 'status');
+    const save = el('button', 'Guardar perfil');
+    form.append(message, box('div', 'row', save, button('Cancelar', () => dialog.close(), 'secondary')));
+    form.onsubmit = async event => {
+      event.preventDefault();
+      save.disabled = true;
+      message.textContent = 'Guardando…';
+      message.removeAttribute('data-error');
+      try {
+        const saved = await api('/api/auth/profile', { fullName: fullName.value, email: email.value, phone: phone.value, clan: clan.value });
+        fullName.value = saved.fullName;
+        fullName.readOnly = saved.nameLocked;
+        state.profile = { fullName: saved.fullName, clan: saved.clan };
+        $('account-title').textContent = saved.fullName;
+        $('clan-label').textContent = 'Clan ' + saved.clan;
+        message.textContent = 'Perfil guardado. El nombre ya no se puede modificar.';
+      } catch (error) {
+        message.textContent = error.message;
+        message.setAttribute('data-error', '');
+      } finally { save.disabled = false; }
+    };
+    dialog.replaceChildren(box('div', 'row between', el('h2', 'Mi perfil'), button('Cerrar', () => dialog.close(), 'text-button')), form);
+    $('account-title').parentElement.open = false;
+    dialog.showModal();
+    fullName.focus();
+  } catch (error) { status(error.message, true); }
+};
 $('logout').onclick = async () => {
   try {
     ollamaRequest?.abort();
@@ -583,10 +630,14 @@ function noticeDay(day, cursor) {
   return card;
 }
 function renderInbox() {
-  const removeNotice = date => button('Eliminar aviso', () => update('/api/notifications', { dismissDate: date }, undefined, 'Aviso eliminado de tu buzón.'), 'text-button');
-  const records = state.notices.map(notice => {
+  const expires = notice => Date.parse(notice.created || notice.date + 'T05:00:00-05:00') + 86400000;
+  const removeNotice = date => button('Eliminar aviso', () => update('/api/notifications', { dismissDate: date }, undefined, 'Aviso eliminado de tu buzón.'), 'danger');
+  const records = state.notices.filter(notice => expires(notice) > Date.now()).map(notice => {
     const card = box('article', 'card', el('h3', dateLabel(notice.date, true)), el('small', notice.track),
       el('h4', 'Programado para el clan'));
+    card.append(el('small', 'Se elimina el ' + new Intl.DateTimeFormat('es-CO', {
+      timeZone: state.zone, dateStyle: 'short', timeStyle: 'short',
+    }).format(new Date(expires(notice)))));
     if (!notice.scheduled.length) card.append(el('p', 'Sin programación verificada'));
     for (const row of notice.scheduled) {
       const day = notice.lessons.find(item => item.id === row.lesson);
@@ -604,14 +655,16 @@ function renderInbox() {
     card.append(el('small', pendingInfo + 'Última consulta de contenido: ' + dateLabel(notice.source.consulted, true)
       + '. Quedan pendientes las fichas o las vinculaciones que falten.'));
     card.toggleAttribute('data-unread', notice.date > readThroughDate);
+    card.dataset.expires = expires(notice);
     card.append(removeNotice(notice.date));
     return card;
   });
-  for (const entry of state.legacyNotices) {
+  for (const entry of state.legacyNotices.filter(entry => expires(entry) > Date.now())) {
     const day = lesson(entry.lesson);
     if (day) {
       const card = box('article', 'card', el('h3', dateLabel(entry.date, true)), el('small', 'Aviso de la Beta'), noticeDay(day));
       card.toggleAttribute('data-unread', entry.date > readThroughDate);
+      card.dataset.expires = expires(entry);
       card.append(removeNotice(entry.date));
       records.push(card);
     }
@@ -1393,6 +1446,12 @@ async function refresh(initial) {
   }
 }
 refresh(true);
+setInterval(() => {
+  for (const card of $('inbox').querySelectorAll('[data-expires]')) {
+    if (Number(card.dataset.expires) <= Date.now()) card.remove();
+  }
+  if (state) $('inbox-toggle').toggleAttribute('data-unread', Boolean($('inbox').querySelector('[data-unread]')));
+}, 1000);
 setInterval(() => {
   if (state && !document.hidden) refresh(false);
 }, 30000);

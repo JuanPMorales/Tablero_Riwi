@@ -42,7 +42,10 @@
         <button id="inbox-toggle" class="icon-button" type="button" aria-label="Buzón de notificaciones" aria-controls="inbox" aria-expanded="false"><span class="menu-icon icon-bell" aria-hidden="true"></span></button>
         <details class="account-menu">
           <summary id="account-title">Mi cuenta</summary>
-          <button id="logout" class="secondary" type="button">Cerrar sesión</button>
+          <div class="account-actions">
+            <button id="edit-profile" class="secondary" type="button">Mi perfil</button>
+            <button id="logout" class="secondary" type="button">Cerrar sesión</button>
+          </div>
         </details>
       </div>
     </header>
@@ -54,6 +57,7 @@
     <main class="app-main">
       <p id="status" class="status" role="status">Cargando tu tablero…</p>
       <div id="sources"></div>
+      <dialog id="profile-dialog" class="profile-dialog" aria-label="Mi perfil"></dialog>
       <section id="check" aria-label="Hoy / Checklist" hidden></section>
       <section id="calendar" aria-label="Calendario Ritchie" hidden></section>
       <section id="inbox" class="inbox-popover" aria-label="Buzón de notificaciones" hidden></section>
