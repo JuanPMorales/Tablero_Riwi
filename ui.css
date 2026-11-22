@@ -450,6 +450,16 @@ progress::-moz-progress-bar { background: var(--meter, var(--accent)); border-ra
 }
 
 .inbox-read { width: 100%; }
+.registration-profile { border: 0; padding: 0; margin: 0; min-width: 0; }
+.auth-register .auth-panel { padding-top: 45px; }
+.password-rules { padding-left: 20px; margin: 12px 0; font-size: .85rem; color: var(--muted); }
+.password-rules li { margin: 5px 0; }
+.password-rules [data-valid="true"] { color: #176044; }
+.notification-days { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 0; margin: 10px 0; padding: 0; }
+.notification-days legend { font-weight: 650; }
+.notification-days .check { font-size: .9rem; padding: 5px 0; }
+.resource-admin { grid-column: 1/-1; }
+.resource-admin > .card { margin: 12px 0 0; }
 
 /* Keep reading surfaces contained on every page, including long source code. */
 main, main > section, .dashboard-grid > *, .activity, .step > div,

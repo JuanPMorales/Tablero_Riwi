@@ -6,6 +6,12 @@ const derive = promisify(scrypt);
 const options = { N: 2 ** 15, r: 8, p: 3, maxmem: 64 * 1024 * 1024 };
 const lifetime = 60 * 60 * 24 * 14;
 const windowMs = 15 * 60 * 1000;
+export const CLANS = ['Gosling', 'Nakamoto', 'Ritchie', 'Tesla', 'Turing', 'Ubuntu', 'Van Rossum'];
+export function passwordRules(password, document) {
+  return [typeof password === 'string' && password.length >= 8 && password.length <= 72,
+    /\p{L}/u.test(password || ''), /[0-9]/.test(password || ''),
+    typeof password === 'string' && password === password.trim(), typeof password === 'string' && Boolean(document) && !password.includes(document)];
+}
 
 export function accountAuth(db, { secure }) {
   const { execute, transaction } = db;
@@ -47,8 +53,21 @@ export function accountAuth(db, { secure }) {
     const document = typeof payload.document === 'string' ? payload.document.trim() : '';
     const { password } = payload;
     if (!/^\d{5,12}$/.test(document) || typeof password !== 'string' || password.length > 128
-      || password.length < (register ? 12 : 1)) {
-      fail(400, 'Ingresa una cédula de 5 a 12 dígitos y una contraseña válida. Para crear una cuenta, usa al menos 12 caracteres.');
+      || password.length < 1) {
+      fail(400, 'Ingresa una cédula de 5 a 12 dígitos y una contraseña válida.');
+    }
+    let profile;
+    if (register) {
+      if (!passwordRules(password, document).every(Boolean)) fail(400, 'La contraseña debe tener entre 8 y 72 caracteres, una letra, un número, no contener tu cédula ni espacios al inicio o al final.');
+      if (payload.confirmation !== password) fail(400, 'Las contraseñas no coinciden.');
+      const fullName = typeof payload.fullName === 'string' ? payload.fullName.trim() : '';
+      const email = typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '';
+      const phone = typeof payload.phone === 'string' ? payload.phone.trim() : '';
+      if (fullName.length < 3 || fullName.length > 160 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254
+        || !/^\+?[0-9 ()-]{7,24}$/.test(phone) || phone.replace(/\D/g, '').length < 7 || !CLANS.includes(payload.clan)) {
+        fail(400, 'Completa tu nombre, correo personal, celular y clan válido.');
+      }
+      profile = [fullName, email, phone, payload.clan];
     }
     const addressKey = digest(address).toString('hex');
     const documentKey = digest(document).toString('hex');
@@ -75,6 +94,7 @@ export function accountAuth(db, { secure }) {
       if (credentials) {
         const result = await execute('INSERT OR IGNORE INTO accounts VALUES (?,?,?,?)', credentials);
         if (!result.changes) fail(409, 'Ya existe una cuenta con esa cédula.');
+        await execute('INSERT INTO account_profiles VALUES (?,?,?,?,?)', [id, ...profile]);
       }
       await execute('DELETE FROM logins WHERE expires<=?', [now]);
       if (previousToken) await execute('DELETE FROM logins WHERE token=?', [digest(previousToken).toString('hex')]);

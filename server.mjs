@@ -207,11 +207,11 @@ async function request(req, res, pathname) {
     throw fault(401, 'Inicia sesión en el tablero.');
   }
   if (req.method === 'GET' && assets.has(path)) return serveAsset(res, path);
-  const canEdit = account === 'owner' || account === RIWI_OWNER_ACCOUNT_ID;
+  const canEdit = account === ((await database.contentOwner()) || RIWI_OWNER_ACCOUNT_ID);
   const store = database.forAccount(account);
   if (req.method === 'GET' && path === '/health') return json(res, 200, { ok: true });
   if (req.method === 'GET' && path === '/api/state') {
-    if (onVercel && process.env.RIWI_SCHEDULER !== '0' && bogota().hour >= 5 && !await store.hasNotice(bogota().date)) {
+    if (onVercel && process.env.RIWI_SCHEDULER !== '0' && !await store.hasNotice(bogota().date)) {
       await store.makeNotice().catch(error => console.error('Aviso diario:', error.code || error.name));
     }
     return json(res, 200, await state(store, canEdit));
@@ -261,8 +261,17 @@ async function request(req, res, pathname) {
     return json(res, 200, { ...await state(store, canEdit), selected });
   }
   if (path === '/api/notifications') {
-    if (typeof p.paused !== 'boolean') throw fault(400, 'Selecciona si quieres pausar los avisos.');
-    await store.setNotificationsPaused(p.paused);
+    if (p.dismissDate !== undefined) {
+      if (!validDate(p.dismissDate)) throw fault(400, 'Fecha de aviso inválida.');
+      await store.dismissNotice(p.dismissDate);
+    } else if (p.days !== undefined || p.time !== undefined) {
+      if (!Array.isArray(p.days) || p.days.length > 7 || new Set(p.days).size !== p.days.length
+        || !p.days.every(day => Number.isInteger(day) && day >= 0 && day <= 6) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(p.time || '')) throw fault(400, 'Selecciona días válidos y una hora de Colombia.');
+      await store.setNotificationSchedule({ days: [...p.days].sort(), time: p.time });
+    } else {
+      if (typeof p.paused !== 'boolean') throw fault(400, 'Selecciona si quieres pausar los avisos.');
+      await store.setNotificationsPaused(p.paused);
+    }
     return json(res, 200, await state(store, canEdit));
   }
   if (path === '/api/history/note') {

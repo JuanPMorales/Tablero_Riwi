@@ -33,17 +33,29 @@ function confirmPassword(showError = false) {
   get('confirmation-error').hidden = !mismatch || !showError;
   confirmation.toggleAttribute('aria-invalid', mismatch && showError);
 }
+function validatePassword() {
+  const value = password.value;
+  const checks = [value.length >= 8 && value.length <= 72, /\p{L}/u.test(value), /[0-9]/.test(value),
+    Boolean(value) && value === value.trim(), Boolean(documentField.value.trim()) && !value.includes(documentField.value.trim())];
+  [...get('password-hint').children].forEach((item, i) => {
+    item.dataset.valid = String(checks[i]);
+    item.querySelector('span').textContent = checks[i] ? '(cumple)' : '(falta)';
+  });
+  password.setCustomValidity(register && !checks.every(Boolean) ? 'Completa los requisitos de la contraseña.' : '');
+  confirmPassword(Boolean(confirmation.value));
+}
 
 documentField.addEventListener('invalid', () => {
   get('document-hint').hidden = documentField.validity.valueMissing;
   documentField.toggleAttribute('aria-invalid', !documentField.validity.valueMissing);
 });
 documentField.addEventListener('input', () => {
+  validatePassword();
   if (!documentField.validity.valid) return;
   get('document-hint').hidden = true;
   documentField.removeAttribute('aria-invalid');
 });
-password.addEventListener('input', () => confirmPassword(Boolean(confirmation.value)));
+password.addEventListener('input', validatePassword);
 confirmation.addEventListener('input', () => confirmPassword(Boolean(confirmation.value)));
 confirmation.addEventListener('invalid', () => confirmPassword(true));
 visibility.onclick = () => setPasswordVisible(password.type === 'password');
@@ -61,12 +73,14 @@ toggle.onclick = () => {
   get('toggle-account-label').textContent = register ? '¿Ya tienes una cuenta?' : '¿Primera vez por aquí?';
   toggle.textContent = register ? 'Iniciar sesión' : 'Crear cuenta';
   password.autocomplete = register ? 'new-password' : 'current-password';
-  password.minLength = register ? 12 : 1;
+  password.minLength = register ? 8 : 1;
+  password.maxLength = register ? 72 : 128;
   password.value = confirmation.value = '';
   get('password-hint').hidden = get('confirmation-field').hidden = !register;
   confirmation.required = register;
+  get('registration-profile').hidden = get('registration-profile').disabled = !register;
   setPasswordVisible(false);
-  confirmPassword();
+  validatePassword();
 };
 form.onsubmit = async event => {
   event.preventDefault();

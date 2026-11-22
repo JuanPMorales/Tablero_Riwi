@@ -1,105 +1,130 @@
-# Mi tablero Riwi · V1.0 Beta
+# Tablero Riwi
 
-Tablero personal para Desarrollo de Software, Trayecto 2, clan Ritchie. Organiza las fichas de Moodle, muestra el calendario del clan, guarda las casillas y el historial, genera un aviso diario y abre la guía del paso elegido. También admite fichas de Inglés y Habilidades Socioemocionales (HSE). El punto de partida de una base nueva es Algoritmia 2 · Semana 1 · Día 1 · MiniReto 3 · Paso 1, con las casillas anteriores disponibles para confirmar.
+Aplicación de estudio con fichas compartidas de Moodle, checklist individual, calendario, historial, buzón y tutor de IA. El contenido se guarda en Turso en producción y en SQLite al ejecutar localmente. Una cuenta nueva comienza en el primer paso, sin casillas marcadas.
 
-## Ejecutar en Windows
+## Páginas y funciones
 
-1. Instala [Node.js 24](https://nodejs.org/).
-2. En el directorio del proyecto, ejecuta `npm ci`. Para personalizar la configuración, copia `.env.example` a `.env`.
-3. Ejecuta `npm start` y abre [el tablero local](http://127.0.0.1:8765/). Crea una cuenta con tu cédula y una contraseña de al menos 12 caracteres.
-4. Para ejecutar las pruebas, usa `node --test`.
-
-La base predeterminada es `riwi.sqlite`. Si vienes de la Beta, detén el servidor anterior, guarda una copia de seguridad y apunta `RIWI_DB_PATH` al archivo existente. El servidor agrega las tablas necesarias y conserva las casillas, fichas importadas, avisos y conversaciones. El historial reconstruido de la Beta indica cuándo no hay fecha de finalización registrada. Para copiar una base en uso usa la API de respaldo de SQLite. Para copiar archivos directamente detén los procesos que la usan y, si existe, conserva también el archivo WAL junto al principal.
-
-## Publicar en Vercel para PC y celular
-
-Usa [Vercel Hobby](https://vercel.com/docs/plans/hobby) para el tablero y [Turso Free](https://turso.tech/pricing) para SQLite en la nube. Cada persona crea su cuenta con cédula y contraseña. Las casillas, el historial, los avisos y las guías guardadas son individuales. Las fichas y el calendario son comunes y solo los edita el titular. La base almacena la cédula como identificador privado y un hash `scrypt` con sal para verificar la contraseña. El tablero no verifica la titularidad de la cédula ante una entidad externa.
-
-1. Crea una base en Turso Free. Si ya tienes casillas o historial local, detén el servidor, haz una copia de SQLite que incluya los cambios del WAL y [crea la base de Turso importando esa copia](https://docs.turso.tech/cli/db/create), por ejemplo con `turso db create tablero-riwi --from-file ./backups/riwi.sqlite`. Si empiezas de cero, crea una base vacía. Obtén su URL `libsql://…` y un token para esa base.
-2. Crea o vincula un proyecto personal en Vercel con `npx vercel link`. Usa el preset **Other**. En **Settings → Environment Variables**, configura en **Production** `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` y `CRON_SECRET` (una cadena aleatoria de al menos 16 caracteres).
-3. Desde la carpeta del proyecto ejecuta `npx vercel --prod`. Abre la URL de producción en el PC y el celular. Comprueba que pide autenticación y que una casilla actualizada en un dispositivo aparece al recargar el otro. En el panel de Vercel, verifica que el cron de `/api/cron` responda correctamente.
-
-Vercel instala el cliente de Turso al construir. La pantalla de acceso está disponible públicamente y las rutas de datos y el tablero requieren una sesión vigente. Usa una base independiente si habilitas vistas previas. Las cuentas titulares existentes conservan su acceso. En una instalación nueva, después del registro del titular, busca el ID interno de su cuenta en la tabla `accounts` y configúralo en `RIWI_OWNER_ACCOUNT_ID`.
-
-En Cron Jobs del plan Hobby, el aviso diario se programa a las **5:00 a. m. de Colombia** (10:00 UTC) y Vercel puede ejecutarlo hasta las **5:59 a. m.** Si abres el tablero después de las 5:00 y falta el aviso, lo genera al cargar. Turso evita duplicados aunque coincidan dos ejecuciones. Mantén ambos servicios en sus planes gratuitos. Al alcanzar sus límites, el servicio afectado puede rechazar peticiones hasta que vuelva a haber cuota. El tablero muestra un error si falla la base y conserva los datos previamente guardados. [Horario y límites del cron](https://vercel.com/docs/schedules/cron-jobs/usage-and-pricing) · [Precios de Turso](https://turso.tech/pricing)
-
-## Acceso privado con servidor propio
-
-La configuración prevista usa un equipo propio encendido, SQLite local y [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) con el [plan Personal](https://tailscale.com/docs/account/manage-plans/free-plans-discounts). El 14 de noviembre de 2026 la documentación de ese plan listaba hasta seis usuarios gratuitos. Usa la misma cuenta del tablero desde ambos dispositivos para ver el mismo avance.
-
-1. Instala Tailscale en el servidor y en el teléfono, conéctalos a tu red privada y habilita los certificados HTTPS. Limita el acceso a tus dispositivos mediante las reglas de esa red.
-2. Ejecuta `tailscale serve --bg http://127.0.0.1:8765`. Guarda la URL HTTPS devuelta en `RIWI_ORIGIN`, sin barra final, y establece `NODE_ENV=production`.
-3. Inicia Node con el comando anterior. Abre la misma URL HTTPS desde ambos dispositivos e inicia sesión con tu cédula y contraseña. Usa Serve para que la URL solo esté disponible en tu red privada.
-4. Para recibir avisos con el navegador cerrado, deja el proceso de Node activo y el equipo encendido. En Windows puedes configurar el Programador de tareas para iniciar Node al arrancar con los argumentos `--env-file=.env server.mjs` y el directorio de trabajo del proyecto. Tailscale ofrece [modo desatendido en Windows](https://tailscale.com/docs/how-to/run-unattended) para que la red privada siga disponible al cerrar sesión.
-
-En un equipo que ya tenga Docker puedes ejecutar `docker compose up -d --build` después de configurar el origen HTTPS. El puerto solo se publica en loopback y el volumen `riwi_data` conserva SQLite. La opción de chat local está deshabilitada en la configuración Docker incluida. Para habilitarla con esta entrega, ejecuta Node y Ollama directamente en el mismo equipo. Si migras una base anterior a Docker, colócala en el volumen antes del primer arranque, con permisos de lectura y escritura para el usuario del contenedor.
-
-GitHub reportaba el repositorio original como público al preparar esta entrega. Cambia a **Private** en Settings antes de subir los cambios. Mantén `.env`, bases de datos, copias de seguridad y cookies fuera de Git.
-
-## Moodle y calendario Ritchie
-
-- [Curso Desarrollo de Software y Trayecto 2](https://moodle.riwi.io/course/view.php?id=137) y [Algoritmia 2](https://moodle.riwi.io/mod/page/view.php?id=7614).
-- [Área personal de Moodle](https://moodle.riwi.io/my/), [Mis cursos de Moodle para Inglés y HSE](https://moodle.riwi.io/my/courses.php), [Genially oficial](https://view.genially.com/66da105683d3400c85f30f74) y [agenda de Ritchie enlazada en Genially](https://teamlead.up.railway.app/agenda?clan=ritchie).
-
-El Día 1 de Algoritmia 2 se contrastó el 14 de noviembre de 2026 en sus cuatro fichas de Reto. La ficha de Café Origen pide JavaScript y Node.js. Los demás días de Algoritmia 2 conservan los temas de la Beta y muestran las instrucciones pendientes. IA Dev Tools, Análisis de Datos, Inglés y HSE están disponibles para incorporar sus fichas. La agenda de Ritchie confirma los bloques de primera hora que se muestran para las semanas del 9 y 16 de noviembre. El tablero usa «Desarrollo» para identificar Algoritmia 2 y «HSE» para Habilidades Socioemocionales. La fecha, semana y día del curso se vinculan al verificar la ficha correspondiente. En **Calendario Ritchie → Ver agenda oficial de Ritchie** se carga el horario incrustado y hay un enlace directo por si el navegador o la fuente bloquean el marco.
-
-Para cargar una ficha, abre el módulo en Moodle, entra en **Semana → Día → Reto → Tus MiniRetos de hoy** y expande cada tarjeta. En el tablero abre **Cargar checklist** y registra tema, resumen, tecnología, enlaces, contexto, pasos, requisitos, criterios y entregable. Respeta la posición y el texto de las casillas que ya tengan historial. En **Calendario Ritchie** usa **Agregar fecha** o **Editar fecha o vincular checklist** para vincular la sesión con el día confirmado. Puedes corregir o quitar la sesión desde el mismo formulario. El progreso se guarda por día del curso y queda asociado al mismo día cuando cambia su fecha.
-
-La consulta manual usa la sesión de tu navegador en Moodle. Si vence, pulsa **Reconectar Moodle** e inicia sesión en la página oficial. Regresa al tablero y registra la consulta o continúa cargando el checklist. El formulario del tablero solicita la contraseña del tablero únicamente mediante el diálogo de autenticación del navegador.
-
-Si Riwi habilita servicios web y proporciona un token de solo lectura con permiso para `core_webservice_get_site_info`, puedes activarlo mediante `RIWI_MOODLE_TOKEN`. El tablero comprueba el token y marca sesión vencida si el servicio lo rechaza como inválido o expirado. Después de renovar el token, reinicia el proceso y pulsa **Comprobar conexión**. Esta comprobación valida acceso al servicio. Las instrucciones dentro de las fichas y la programación de Genially se cargan manualmente hasta contar con un acceso oficial que entregue esos datos estructurados.
-
-## Avisos a las 5:00 a. m.
-
-El servidor usa `America/Bogota` y guarda un aviso por fecha de Colombia. En un servidor propio se revisa el reloj cada 15 segundos. Si el proceso arranca después de las 5:00 a. m., crea el aviso del día en curso. En Vercel, Cron Jobs hace la llamada diaria. El aviso conserva una copia de la programación, el punto de avance y las fichas disponibles cuando se generó. El enlace abre el checklist vigente. `RIWI_SCHEDULER=0` desactiva la generación para mantenimiento o pruebas.
-
-El destino es exclusivamente el buzón de la aplicación. La búsqueda de automatizaciones no encontró una ejecución existente que pudiera conectar con ese buzón.
-
-## Guía y chat
-
-**Pedir guía** abre el hilo del paso. La primera guía usa una plantilla y, donde están disponibles, ejemplos escritos para el Día 1. **Ver o generar guía de IA** reutiliza la guía que ya está guardada para esa cuenta y ese paso, incluso si se desconectó el modelo. La primera generación, **Pedir más explicación** y las preguntas libres consultan el modelo conectado. Las guías y conversaciones se guardan por cuenta en el tablero.
-
-En **Chat Riwi → Conectar un modelo**, escoge el proveedor y escribe el identificador exacto del modelo:
-
-| Conexión | Qué necesita |
+| Página | Qué puedes hacer |
 |---|---|
-| Groq | Clave de [Groq Console](https://console.groq.com/keys). El plan gratuito tiene [cuotas](https://console.groq.com/docs/rate-limits) y admite `openai/gpt-oss-20b`. |
-| Gemini | Clave personal de [Google AI Studio](https://aistudio.google.com/apikey). |
-| Google Cloud | Inicio de sesión con Google e ID de un proyecto con la API de Vertex AI habilitada y permisos para generar contenido. |
-| OpenAI | Una clave de la [plataforma API](https://platform.openai.com/api-keys). El [inicio de sesión con el plan de ChatGPT](https://developers.openai.com/siwc/quickstart) requiere habilitación de OpenAI para una app alojada. |
-| Claude | Clave de [Claude Console](https://platform.claude.com/settings/keys) con acceso a un workspace. |
-| Ollama | Modelo descargado y en ejecución local. |
-| Agente local | API compatible con `/v1/chat/completions` en `127.0.0.1`, con el puerto y modelo que usa el agente. |
+| Mi tablero | Elegir módulo, semana y día; leer el contexto de cada minirreto; marcar pasos, actividades o el día completo; pedir una guía. |
+| Fichas | Buscar y filtrar días, abrir la fuente oficial de Moodle o consultar su checklist. La cuenta administradora también carga y edita contenido. |
+| Calendario | Consultar las sesiones y abrir el checklist vinculado. La cuenta administradora puede agregar, corregir y quitar fechas. |
+| Historial | Consultar progreso por día, filtrar por módulo o estado y escribir notas privadas. |
+| Chat Riwi | Pedir guías, conversar con un modelo conectado, crear y renombrar conversaciones, reutilizar guías guardadas y eliminar hilos. |
+| Buzón | Consultar avisos, pausarlos o reanudarlos, elegir días y hora, marcar como leídos durante la sesión y eliminar avisos del buzón personal. |
 
-Para activar Google, crea un cliente OAuth de tipo **Aplicación web** en Google Cloud, configura su pantalla de consentimiento, registra la URL exacta `https://TU-DOMINIO/google-callback` como URI de redirección y configura `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` en el servidor. Si la aplicación OAuth está en modo de pruebas, agrega las cuentas de prueba en Google. El permiso de Google Cloud vincula la cuenta que tiene acceso al proyecto elegido. Las credenciales de cada persona viven en memoria de la pestaña y se usan solo por solicitud en el servidor. Se descartan al desconectar, recargar o cerrar sesión y no se guardan en Turso ni en el almacenamiento del navegador. La aplicación guarda los mensajes, así que pega claves únicamente en el campo de conexión.
+Los contextos admiten párrafos, títulos, listas, tablas, código en línea y bloques de código con resaltado. En el panel del paso puedes desplegar el contexto sin repetirlo completo en pantalla. Los requisitos, criterios y entregables se muestran por separado.
 
-Para Ollama, mantén el servicio en loopback, activa `OLLAMA_NO_CLOUD=1`, configura `OLLAMA_ORIGINS` con el origen exacto del tablero y reinicia Ollama. En un agente compatible configura CORS para ese mismo origen. Si el navegador solicita permiso de red local, concédelo al conectar. La conexión llega al servicio instalado en el dispositivo que tiene abierto el navegador. Puedes mantener el modo anterior `RIWI_OLLAMA_MODEL` si ejecutas Node y Ollama directamente en el mismo equipo.
+## Registro e inicio de sesión
 
-El tablero comprueba que Ollama tenga el modelo local antes de conectarlo. Solicita respuestas sin razonamiento visible y limita la generación a 320 tokens para preguntas y 600 para guías. Mantén la pestaña abierta durante la generación. El tablero espera a Ollama sin imponer un límite de tiempo y permite detener la solicitud con **Cancelar respuesta**.
+Para crear una cuenta se solicitan nombre completo, correo personal, celular, clan, cédula, contraseña y confirmación. Los clanes disponibles son Gosling, Nakamoto, Ritchie, Tesla, Turing, Ubuntu y Van Rossum.
 
-**Eliminar conversación** borra los mensajes y las guías guardadas del chat del día o del paso abierto, según el hilo seleccionado. El progreso del checklist y las demás conversaciones se conservan.
+La contraseña debe cumplir todas estas condiciones, verificadas tanto en el formulario como en el servidor:
 
-En **Chat Riwi → Conversaciones**, escribe un título y pulsa **Nueva conversación** para abrir un hilo independiente con el contexto del día o paso abierto. La lista también muestra los hilos anteriores. Las guías se reutilizan dentro de su conversación.
+- Entre 8 y 72 caracteres.
+- Al menos una letra y un número.
+- Sin espacios al inicio ni al final.
+- No contener la cédula de la cuenta.
+- Coincidir con la confirmación.
 
-En **Contexto y skills del tutor**, cada cuenta puede guardar su contexto, las habilidades que quiere usar y los límites adicionales. Las reglas base están en `tutor-policy.mjs` y se aplican tanto a los proveedores de nube como a Ollama. Las skills son instrucciones de comportamiento para el modelo. Al usar un proveedor de nube, este recibe el perfil, el contexto del ejercicio y los mensajes necesarios para la consulta. Evita incluir credenciales o datos personales en el perfil.
+El formulario indica cuáles condiciones faltan. Para iniciar sesión solo se necesitan cédula y contraseña. Las cuentas anteriores conservan su contraseña y acceso; no se fuerza un nuevo registro. El sistema no verifica la identidad de la cédula, la propiedad del correo ni el celular mediante códigos.
 
-### Empezar con una base vacía
+Las contraseñas se verifican con un hash scrypt y sal aleatoria. Las sesiones utilizan cookies HttpOnly y SameSite y, en producción, Secure. El perfil se guarda en una tabla privada independiente. El nombre y clan mostrados corresponden a la cuenta conectada.
 
-- **Local.** Cambia `RIWI_DB_PATH` en `.env` a un nombre nuevo, por ejemplo `riwi-nuevo.sqlite`, y reinicia el servidor. Se crean las tablas y el contenido inicial del catálogo.
-- **Vercel.** Crea otra base en Turso y genera un token para esa base. Actualiza `TURSO_DATABASE_URL` y `TURSO_AUTH_TOKEN` para **Production** y redespliega. Registra las cuentas en la base nueva y actualiza `RIWI_OWNER_ACCOUNT_ID` con el ID de la nueva cuenta titular. Para volver a los datos anteriores, restaura las variables de la base anterior y redespliega.
+## Contenido compartido y permisos
 
-### Solicitud de acceso a ChatGPT Plus
+Las fichas, sus días, temas, contextos, minirretos, pasos y enlaces pertenecen al catálogo compartido. Al guardar una ficha en Turso, las demás cuentas pueden consultarla al actualizar o volver a abrir la sección. No se necesita un push para cargar contenido.
 
-En la [solicitud oficial de OpenAI](https://developers.openai.com/siwc/request-client-id), indica **Tablero Riwi**, `https://tablero-riwi.vercel.app` y solicita **uso del plan de ChatGPT para generar respuestas**, además del inicio de sesión. El caso de uso es que cada estudiante autorice su propia cuenta para conversar con un tutor de programación. La conexión de planes y el selector de modelos quedan pendientes de que OpenAI habilite el acceso y comunique las condiciones para el cliente web.
+Las casillas, el punto para retomar, las fechas de finalización, notas, avisos, preferencias y conversaciones son propios de cada cuenta. Marcar un paso no lo marca para otra persona. Desmarcar un día permite retomarlo; desmarcar una semana regresa al primer día con actividades de esa semana y módulo, sin borrar el progreso ajeno.
 
-## Costos y límites
+Solo la cuenta administradora configurada puede cargar o modificar fichas y calendario. Esta restricción también se aplica en la API: ocultar un botón no concede acceso al servidor. Registrarse no convierte a nadie en administrador.
 
-| Componente | Condición y comportamiento al alcanzar el límite |
-| --- | --- |
-| Equipo propio y Tailscale Personal | El alojamiento utiliza equipo, internet y electricidad existentes. Usa el plan Personal gratuito sin habilitar un plan de pago. Si se alcanza la capacidad gratuita, mantén el acceso dentro de los dispositivos y límites disponibles. [Condiciones del plan](https://tailscale.com/docs/account/manage-plans/free-plans-discounts) |
-| SQLite | Usa el disco del equipo. Si se llena, SQLite puede rechazar la escritura y el tablero indica error. No hay un proveedor de base de datos con facturación por uso. [Códigos de error de SQLite](https://www.sqlite.org/rescode.html) |
-| Avisos | El proceso almacena avisos directamente en SQLite. Si falla una escritura, el proceso reintenta durante el día. No hay API de notificaciones ni cuota de mensajes. |
-| Chat | El tablero funciona con guías sin credenciales. Las conexiones de nube son opcionales, usan la cuota o el saldo personal y pueden generar cargos. Al alcanzar el límite del proveedor, la aplicación muestra el error sin reintentar automáticamente. Ollama local usa los recursos del dispositivo. |
+La cuenta autorizada se configura de forma privada con la clave `content-owner-account` de la tabla `settings`, cuyo valor es el ID interno de la cuenta en `accounts`. Esta configuración tiene prioridad sobre `RIWI_OWNER_ACCOUNT_ID`, usado como alternativa para una instalación nueva. No escribas cédulas reales ni IDs privados en este README o en archivos versionados.
 
-La publicación en Vercel, una prueba desde un teléfono real, los módulos todavía sin fichas, la sincronización automática de contenidos y la activación de un modelo local requieren configuración o acceso adicional.
+Mi tablero no muestra formularios para editar ni añadir fichas a ninguna cuenta. La administración se realiza exclusivamente en Fichas. Los estudiantes solo ven las opciones de Moodle y checklist.
 
+## Cargar un día desde Fichas
+
+Con la cuenta administradora:
+
+1. Abre Fichas y despliega Administrar fichas compartidas.
+2. En Crear un día nuevo, completa módulo, semana, día, tema, tecnología, enlace oficial y resumen.
+3. Añade los minirretos. Cada uno tiene título, contexto, pasos, requisitos, criterios y entregable.
+4. Escribe un paso por línea y pulsa Guardar checklist.
+
+También puedes elegir un archivo JSON en Importar fichas desde archivo. La importación comienza al seleccionar el archivo. Debe contener una lista de entre 1 y 50 días y ocupar menos de 1 MB. Ejemplo ilustrativo, que debes reemplazar por la ficha oficial correspondiente:
+
+```json
+[
+  {
+    "module": "algoritmia",
+    "week": 5,
+    "day": 1,
+    "title": "Tema del día",
+    "technology": "JavaScript y Node.js",
+    "url": "https://moodle.riwi.io/mod/page/view.php?id=7614",
+    "summary": "Qué se aprenderá durante el día.",
+    "quests": [
+      [
+        "Título del minirreto",
+        "## Contexto\n\nSituación que debe resolverse.\n\n```javascript\nconst total = 10;\nconsole.log(total);\n```",
+        ["Crea el archivo.", "Implementa la solución.", "Comprueba el resultado."],
+        {
+          "requirements": "Requisitos del ejercicio.",
+          "criteria": "Cómo comprobar la solución.",
+          "deliverable": "Qué se debe entregar."
+        }
+      ]
+    ]
+  }
+]
+```
+
+Cada minirreto usa el orden `[título, contexto, pasos, metadatos]`. En JSON, `\n` representa un salto de línea. Para código utiliza tres acentos graves, el lenguaje y el código, cerrando con otros tres acentos graves. Los módulos aceptados son `algoritmia`, `ia`, `datos`, `ingles` y `hse`.
+
+Si ya existe el mismo módulo, semana y día, la importación intenta actualizarlo. Se rechazan cambios incompatibles con pasos que ya tengan progreso o conversaciones. La importación de varias fichas es secuencial: un error no deshace las fichas anteriores; el mensaje indica cuántas se guardaron.
+
+El tablero no descarga automáticamente las fichas privadas. En Moodle recorre Semana → Día → Reto → Tus MiniRetos de hoy y consulta cada tarjeta. Conserva los enlaces oficiales. Los materiales cargados se guardan en la base privada, fuera de GitHub. La base de producción puede contener más contenido que el catálogo inicial incluido en el código.
+
+## Notificaciones personalizadas
+
+Desde el buzón puedes seleccionar los días de la semana y una hora en `America/Bogota`. Sin días seleccionados no se generan avisos. Pausar conserva el historial y bloquea avisos nuevos; reanudar respeta el horario guardado. Las preferencias persisten al recargar y volver a iniciar sesión.
+
+Hay como máximo un aviso por cuenta y fecha. Incluye la programación disponible y el punto personal para continuar. Eliminar aviso lo retira de tu buzón de forma persistente; no afecta el aviso de otros usuarios y no se regenera durante esa misma fecha. Internamente se conserva un registro de descarte para evitar duplicados.
+
+Los avisos son internos: no se envían correos, SMS ni notificaciones push. Con una pestaña visible se comprueba el horario cada 30 segundos. Un servidor local encendido revisa cada 15 segundos. Vercel tiene un cron diario a las 10:00 UTC; los horarios personales posteriores se comprueban al abrir o actualizar la aplicación. El cron diario no garantiza entrega puntual a cualquier hora si la aplicación está cerrada. `RIWI_SCHEDULER=0` desactiva la generación automática en el servidor.
+
+## Guías, conversaciones e IA
+
+Pedir guía genera ayuda básica del tablero sin necesitar un proveedor. Ver o generar guía de IA reutiliza la guía guardada del hilo; generar una nueva, ampliar la explicación o hacer preguntas necesita un modelo conectado. Cada cuenta conserva sus propios mensajes y conversaciones.
+
+El contexto enviado al tutor incluye el módulo, semana, día, tema, resumen, tecnología, el minirreto y su contexto, el paso seleccionado, los requisitos disponibles, el avance de esa cuenta y hasta los diez mensajes recientes del hilo. El chat general del día usa el contexto del día. El modelo no recibe las cuentas de otros usuarios ni puede marcar casillas o administrar la base de datos.
+
+Las reglas del tutor están en `tutor-policy.mjs`. El administrador puede añadir instrucciones privadas con `RIWI_TUTOR_CONTEXT` y `RIWI_TUTOR_SKILLS`; no existe un editor de perfil personal de instrucciones del tutor. La conexión directa del navegador a un modelo local usa instrucciones y contexto más breves que los proveedores atendidos por el servidor.
+
+En Conectar un modelo se admiten Groq, Gemini, Google Cloud/Vertex AI, OpenAI, Claude, Ollama y un agente local compatible. El proveedor requiere su propia credencial o servicio local. El costo y acceso dependen de ese proveedor; una suscripción a ChatGPT no equivale a una clave de API.
+
+Las claves personales de los modelos solo viven en memoria de la pestaña y se descartan al desconectar, recargar o cerrar sesión. No se guardan en Turso. Los mensajes sí se guardan, por lo que no deben contener secretos. Google requiere configurar `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` y la redirección HTTPS `/google-callback`. Los modelos locales requieren estar instalados y permitir el origen del tablero.
+
+El chat presenta Markdown y código, permite copiarlo y probar JavaScript o Python en un entorno aislado, y previsualizar HTML/CSS. Estas pruebas no ejecutan acciones sobre la base de producción. Eliminar un hilo conserva el checklist y los demás hilos.
+
+## Ejecutar y probar
+
+1. Instala Node.js 24 y ejecuta `npm ci`.
+2. Copia `.env.example` a `.env` y configura la base local y el origen.
+3. Ejecuta `npm start` y abre `http://127.0.0.1:8765`.
+4. Ejecuta `npm test` y `git diff --check` antes de publicar.
+
+La base local predeterminada es `riwi.sqlite`; `RIWI_DB_PATH` permite cambiarla. Las tablas nuevas se crean automáticamente sin borrar los datos existentes. Respalda una base antes de cambiarla; si la copias mientras está en uso, emplea una copia consistente que incluya el WAL.
+
+## Vercel y Turso
+
+El proyecto usa `vercel.json`, Node.js 24 y Turso mediante `@libsql/client`. Configura `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` y `CRON_SECRET` en las variables privadas de Production. Configura la cuenta administradora mediante `content-owner-account` o `RIWI_OWNER_ACCOUNT_ID`. Tras cambiar variables de Vercel hace falta un nuevo despliegue.
+
+En un servidor propio utiliza `RIWI_ORIGIN` con el origen exacto; para acceso remoto usa HTTPS y `NODE_ENV=production`. No publiques SQLite como archivo estático.
+
+Para iniciar otra instalación desde cero, crea una base independiente y cambia la conexión; respalda antes la anterior. Reiniciar progreso no debe borrar fichas ni cuentas. Cambiar el código no reinicia automáticamente las casillas existentes.
+
+## Datos privados
+
+No subas credenciales, cookies, tokens, cédulas reales, perfiles, exportaciones de Moodle, SQL con datos ni copias de bases a GitHub. `.gitignore` excluye `.env`, `data/`, `backups/` y bases SQLite. Guarda el material del curso y los perfiles solo en los servicios privados previstos para la aplicación.

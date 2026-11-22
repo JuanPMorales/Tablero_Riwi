@@ -4,11 +4,11 @@ import { AGENDA, MODULES, RITCHIE_AGENDA, TRAYECTO, VERIFIED, ZONE, agendaModule
 import { localDatabase } from './database.mjs';
 
 const clock = new Intl.DateTimeFormat('en-CA', {
-  timeZone: ZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23',
+  timeZone: ZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
 });
 export function bogota(now = new Date()) {
   const parts = Object.fromEntries(clock.formatToParts(now).map(({ type, value }) => [type, value]));
-  return { date: parts.year + '-' + parts.month + '-' + parts.day, hour: Number(parts.hour) };
+  return { date: parts.year + '-' + parts.month + '-' + parts.day, hour: Number(parts.hour), minute: Number(parts.minute) };
 }
 export const keys = lesson => lesson.quests.flatMap((quest, i) => quest[2].map((_, j) => i + '-' + j));
 export const guidePrompt = 'Guíame en este paso con un ejemplo y una prueba.';
@@ -38,6 +38,12 @@ const schema = `
     id TEXT PRIMARY KEY, document TEXT NOT NULL UNIQUE, salt TEXT NOT NULL, hash TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS logins (token TEXT PRIMARY KEY, account TEXT NOT NULL, expires INTEGER NOT NULL);
+  CREATE TABLE IF NOT EXISTS account_profiles (
+    account TEXT PRIMARY KEY, full_name TEXT NOT NULL, email TEXT NOT NULL, phone TEXT NOT NULL, clan TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS account_notice_dismissals (
+    account TEXT NOT NULL, date TEXT NOT NULL, PRIMARY KEY(account,date)
+  );
   CREATE INDEX IF NOT EXISTS logins_expiry ON logins(expires);
   CREATE TABLE IF NOT EXISTS auth_limits (bucket TEXT PRIMARY KEY, expires INTEGER NOT NULL, attempts INTEGER NOT NULL);
   CREATE INDEX IF NOT EXISTS auth_limits_expiry ON auth_limits(expires);
@@ -163,10 +169,11 @@ export async function openStore(path, db = localDatabase(path)) {
     async function personalSettings() {
       const settings = await readSettings();
       if (owner) return settings;
-      const personal = await all('SELECT key,value FROM settings WHERE key IN (?,?,?,?)',
-        ['active', 'step', 'chat-focus', 'notifications-paused'].map(key => `${account}:${key}`));
+      const preferenceKeys = ['active', 'step', 'chat-focus', 'notifications-paused', 'notification-schedule'];
+      const personal = await all('SELECT key,value FROM settings WHERE key IN (' + preferenceKeys.map(() => '?').join(',') + ')',
+        preferenceKeys.map(key => `${account}:${key}`));
       return { ...settings, active: '1', step: '0-0', 'chat-focus': undefined,
-        'notifications-paused': '0',
+        'notifications-paused': '0', 'notification-schedule': undefined,
         ...Object.fromEntries(personal.map(row => [row.key.split(':')[1], row.value])) };
     }
     async function writeMarks(lesson, list, checked) {
@@ -238,12 +245,17 @@ export async function openStore(path, db = localDatabase(path)) {
     function setNotificationsPaused(paused) {
       return transaction(() => setPersonal('notifications-paused', paused ? '1' : '0'));
     }
+    const schedule = settings => JSON.parse(settings['notification-schedule'] || '{"days":[0,1,2,3,4,5,6],"time":"05:00"}');
+    const setNotificationSchedule = value => transaction(() => setPersonal('notification-schedule', JSON.stringify(value)));
+    const dismissNotice = date => execute('INSERT OR IGNORE INTO account_notice_dismissals VALUES (?,?)', [account, date]);
     function makeNotice(now = new Date()) {
       return transaction(async () => {
-        const { date, hour } = bogota(now);
-        if (hour < 5) return false;
+        const { date, hour, minute } = bogota(now);
         const [rows, settings, marks, agenda] = await Promise.all([lessons(), personalSettings(), readTicks(), sessions()]);
         if (settings['notifications-paused'] === '1') return false;
+        const preference = schedule(settings);
+        const [h, m] = preference.time.split(':').map(Number);
+        if (!preference.days.includes(new Date(date + 'T12:00:00Z').getUTCDay()) || hour * 60 + minute < h * 60 + m) return false;
         const cursor = resume(rows, indexTicks(marks), settings);
         const scheduled = agenda.filter(row => row.date === date);
         const ids = [...new Set(scheduled.map(row => row.lesson).filter(Boolean))];
@@ -263,13 +275,15 @@ export async function openStore(path, db = localDatabase(path)) {
         lessons(), readTicks(), personalSettings(), sessions(),
         all('SELECT lesson,completed FROM account_completions WHERE account=? ORDER BY completed DESC, lesson', [account]),
         all('SELECT lesson,note FROM account_history_notes WHERE account=?', [account]),
-        all('SELECT data FROM account_daily WHERE account=? ORDER BY date DESC', [account]),
-        owner ? all('SELECT date,lesson FROM inbox ORDER BY date DESC, lesson') : [],
+        all('SELECT data FROM account_daily WHERE account=? AND NOT EXISTS (SELECT 1 FROM account_notice_dismissals d WHERE d.account=account_daily.account AND d.date=account_daily.date) ORDER BY date DESC', [account]),
+        owner ? all('SELECT date,lesson FROM inbox WHERE NOT EXISTS (SELECT 1 FROM account_notice_dismissals d WHERE d.account=? AND d.date=inbox.date) ORDER BY date DESC, lesson', [account]) : [],
       ]);
       return {
         today: bogota(now).date, track: TRAYECTO, modules: MODULES, lessons: rows, checked, sessions: agenda,
         resume: resume(rows, indexTicks(checked), settings), source: source(settings), history,
         notificationsPaused: settings['notifications-paused'] === '1',
+        notificationSchedule: schedule(settings),
+        profile: await get('SELECT full_name AS fullName,clan FROM account_profiles WHERE account=?', [account]) ?? null,
         historyNotes: Object.fromEntries(notes.map(row => [row.lesson, row.note])),
         notices: notices.map(row => JSON.parse(row.data)), legacyNotices, chatFocus: JSON.parse(settings['chat-focus'] || 'null'),
       };
@@ -353,7 +367,7 @@ export async function openStore(path, db = localDatabase(path)) {
         return chatHistory(id, step);
       });
     }
-    return { find, ticks, applyTicks, setNotificationsPaused, hasNotice, makeNotice, snapshot, chatHistory, chatRevision, deleteChat, saveChat, guideHistory, saveGuide,
+    return { find, ticks, applyTicks, setNotificationsPaused, setNotificationSchedule, dismissNotice, hasNotice, makeNotice, snapshot, chatHistory, chatRevision, deleteChat, saveChat, guideHistory, saveGuide,
       saveHistoryNote, listChats, createChat, findChat, legacyChatTitle, renameChat,
       focus: (id, step, chat) => setPersonal('chat-focus', JSON.stringify({ id, step, ...(chat ? { chat } : {}) })) };
   }
@@ -424,5 +438,6 @@ export async function openStore(path, db = localDatabase(path)) {
     return created;
   }
   return { ...owner, forAccount: account => ({ ...forAccount(account), saveLesson, saveSession, removeSession, recordMoodle }),
+    contentOwner: async () => (await get("SELECT value FROM settings WHERE key='content-owner-account'"))?.value,
     saveLesson, saveSession, removeSession, recordMoodle, makeNotices, db, close: db.close };
 }

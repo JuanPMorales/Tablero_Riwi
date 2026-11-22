@@ -27,6 +27,12 @@
         <h2 id="login-heading"><span class="auth-desktop-heading">Qué bueno verte de nuevo</span><span class="auth-mobile-heading">Hola de nuevo.</span></h2>
         <p id="login-caption" class="muted"><span class="auth-desktop-heading">Continúa donde dejaste tu aprendizaje.</span><span class="auth-mobile-heading">Retoma tu camino de aprendizaje.</span></p>
         <form id="account-form" method="post">
+          <fieldset id="registration-profile" hidden disabled class="registration-profile">
+            <div class="auth-field"><label for="full-name">Nombre completo</label><input id="full-name" name="fullName" autocomplete="name" minlength="3" maxlength="160" required></div>
+            <div class="auth-field"><label for="email">Correo personal</label><input id="email" name="email" type="email" autocomplete="email" maxlength="254" required></div>
+            <div class="auth-field"><label for="phone">Celular</label><input id="phone" name="phone" type="tel" autocomplete="tel" minlength="7" maxlength="24" required></div>
+            <div class="auth-field"><label for="clan">Clan</label><select id="clan" name="clan" required><option value="">Selecciona tu clan</option><option>Gosling</option><option>Nakamoto</option><option>Ritchie</option><option>Tesla</option><option>Turing</option><option>Ubuntu</option><option>Van Rossum</option></select></div>
+          </fieldset>
           <div class="auth-field">
             <label for="document">Cédula</label>
             <input id="document" name="document" placeholder="1032456789" inputmode="numeric" autocomplete="username" required pattern="[0-9]{5,12}" maxlength="12" aria-describedby="document-hint">
@@ -38,11 +44,17 @@
               <input id="password" name="password" type="password" autocomplete="current-password" placeholder="••••••••••" required maxlength="128" aria-describedby="password-hint">
               <button id="show-password" type="button" aria-controls="password" aria-pressed="false">Mostrar</button>
             </div>
-            <p id="password-hint" class="muted" hidden>Usa al menos 12 caracteres.</p>
+            <ul id="password-hint" class="password-rules" hidden aria-live="polite">
+              <li>Entre 8 y 72 caracteres <span></span></li>
+              <li>Al menos una letra <span></span></li>
+              <li>Al menos un número <span></span></li>
+              <li>Sin espacios al inicio o al final <span></span></li>
+              <li>Sin tu cédula <span></span></li>
+            </ul>
           </div>
           <div id="confirmation-field" class="auth-field" hidden>
-            <label for="confirmation">Confirmar contraseña</label>
-            <input id="confirmation" type="password" autocomplete="new-password" maxlength="128" placeholder="••••••••••" aria-describedby="confirmation-error">
+            <label for="confirmation">Confirma la contraseña</label>
+            <input id="confirmation" name="confirmation" type="password" autocomplete="new-password" maxlength="72" placeholder="••••••••••" aria-describedby="confirmation-error">
             <p id="confirmation-error" class="field-error" hidden>Las contraseñas no coinciden.</p>
           </div>
           <div id="login-status" class="status" role="status" hidden></div>

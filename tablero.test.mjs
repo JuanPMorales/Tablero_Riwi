@@ -23,7 +23,7 @@ process.env.GOOGLE_CLIENT_SECRET = 'fixture-secret';
 process.env.RIWI_TUTOR_SKILLS = 'Trazar los bucles con el tutor privado';
 globalThis.fetch = async () => { throw new Error('Las pruebas solo admiten respuestas simuladas.'); };
 const { handleRequest, closeDatabase, writeOriginAllowed } = await import('./server.mjs');
-const ownerDetails = { document: '1000000001', password: 'owner-fixture-password' };
+const ownerDetails = { document: '1000000001', password: 'Owner-fixture-42', confirmation: 'Owner-fixture-42', fullName: 'Persona Titular', email: 'titular@example.test', phone: '3000000000', clan: 'Ritchie' };
 let ownerCookie;
 
 async function call(url, data, { auth = true, cookie = auth ? ownerCookie : undefined,
@@ -64,6 +64,7 @@ test('autenticación de las páginas, recursos y API; protección de origen', as
   const fixture = await openStore(process.env.RIWI_DB_PATH);
   await fixture.db.execute("UPDATE logins SET account='owner'");
   await fixture.db.execute("UPDATE accounts SET id='owner' WHERE document=?", [ownerDetails.document]);
+  await fixture.db.execute("INSERT INTO settings VALUES ('content-owner-account','owner')");
   fixture.close();
   assert.equal((await call('/api/chat', { id: 1, message: 'Hola' }, { auth: false })).status, 401);
   assert.equal((await call('/api/ticks', { id: 1, finish: true }, { origin: 'https://example.org' })).status, 403);
@@ -183,7 +184,7 @@ test('los entornos de prueba devuelven la salida de JavaScript y Python', async 
 });
 
 test('cada cédula conserva sus propios cambios, sesión e historial de guía', async () => {
-  const details = { document: '1000000002', password: 'other-fixture-password' };
+  const details = { document: '1000000002', password: 'Other-fixture-42', confirmation: 'Other-fixture-42', fullName: 'Otra Persona', email: 'otra@example.test', phone: '3000000001', clan: 'Tesla' };
   const registration = await call('/api/auth/register', details, { auth: false });
   assert.equal(registration.status, 200);
   const cookie = registration.headers['Set-Cookie'].split(';')[0];
@@ -191,6 +192,8 @@ test('cada cédula conserva sus propios cambios, sesión e historial de guía', 
   assert.equal((await call('/api/auth/login', { ...details, password: 'incorrecta' }, { auth: false })).status, 401);
   const permissions = (await call('/api/state', undefined, { cookie })).json;
   assert.equal(permissions.canEdit, false);
+  assert.equal((await call('/api/import', {}, { cookie })).status, 403);
+  assert.equal(permissions.profile.fullName, details.fullName);
   assert.equal(permissions.checked.length, 0);
   assert.equal((await call('/api/session', {}, { cookie })).status, 403);
   assert.equal((await call('/api/ticks', { id: 1, changes: { '2-0': true } }, { cookie })).json.checked.length, 1);
@@ -662,6 +665,16 @@ test('la carga local revisada amplía instrucciones sin perder casillas ni conve
     const changed = { ...expanded, quests: expanded.quests.map((q,i) => i ? q : [q[0],q[1],q[2].slice(1),q[3]]) };
     assert.equal(await store.saveLesson(1, changed, { preserveStepPositions: true }), null);
   } finally { store.close(); }
+});
+
+test('API restringe cargas y valida horarios y eliminación de avisos', async () => {
+  assert.equal((await call('/api/state')).json.canEdit, true);
+  assert.equal((await call('/api/notifications', { days: [1, 3, 5], time: '18:45' })).status, 200);
+  assert.deepEqual((await call('/api/state')).json.notificationSchedule, { days: [1, 3, 5], time: '18:45' });
+  for (const invalid of [{ days: [7], time: '18:45' }, { days: [1, 1], time: '18:45' }, { days: [1], time: '25:00' }, { dismissDate: 'no-es-fecha' }]) {
+    assert.equal((await call('/api/notifications', invalid)).status, 400);
+  }
+  assert.equal((await call('/api/notifications', { dismissDate: '2026-11-22' })).status, 200);
 });
 
 test.after(async () => {

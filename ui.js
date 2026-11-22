@@ -459,7 +459,6 @@ function renderCheck() {
       button('Pedir más explicación', () => guide('explain'), 'text-button')));
   detail.append(link('Ver ficha en Moodle ↗', d.url));
   $('check').replaceChildren(heading, hero, routeTitle, box('div', 'dashboard-grid', route, detail), controls);
-  if (state.canEdit) $('check').append(lessonForm(d), details('Añadir otro día del curso', lessonForm()));
 }
 function sessionContent(s, compact = false) {
   const day = lesson(s.lesson);
@@ -577,13 +576,14 @@ function noticeDay(day, cursor) {
   if (cursor) card.append(el('p', 'Retoma aquí · ' + cursorLabel(cursor, day)));
   if (day.quests.length) {
     card.append(el('h4', 'Tus MiniRetos de hoy'));
-    day.quests.forEach((q, i) => card.append(details('MiniReto ' + (i + 1) + ' · ' + q[0], el('p', q[1]),
+    day.quests.forEach((q, i) => card.append(details('MiniReto ' + (i + 1) + ' · ' + q[0], richText(q[1]),
       box('ol', 'notice-list', ...q[2].map((task, index) => el('li', 'Paso ' + (index + 1) + ' · ' + task))))));
   } else card.append(el('p', 'Pasos pendientes de verificar.'));
   card.append(box('div', 'row', openDay(day.id, cursor?.step), link('Ver Moodle ↗', day.url)));
   return card;
 }
 function renderInbox() {
+  const removeNotice = date => button('Eliminar aviso', () => update('/api/notifications', { dismissDate: date }, undefined, 'Aviso eliminado de tu buzón.'), 'text-button');
   const records = state.notices.map(notice => {
     const card = box('article', 'card', el('h3', dateLabel(notice.date, true)), el('small', notice.track),
       el('h4', 'Programado para el clan'));
@@ -604,6 +604,7 @@ function renderInbox() {
     card.append(el('small', pendingInfo + 'Última consulta de contenido: ' + dateLabel(notice.source.consulted, true)
       + '. Quedan pendientes las fichas o las vinculaciones que falten.'));
     card.toggleAttribute('data-unread', notice.date > readThroughDate);
+    card.append(removeNotice(notice.date));
     return card;
   });
   for (const entry of state.legacyNotices) {
@@ -611,6 +612,7 @@ function renderInbox() {
     if (day) {
       const card = box('article', 'card', el('h3', dateLabel(entry.date, true)), el('small', 'Aviso de la Beta'), noticeDay(day));
       card.toggleAttribute('data-unread', entry.date > readThroughDate);
+      card.append(removeNotice(entry.date));
       records.push(card);
     }
   }
@@ -629,8 +631,24 @@ function renderInbox() {
   }, 'secondary');
   toggle.id = 'inbox-preferences';
   const preferences = box('div', 'row between', el('p', paused ? 'Avisos diarios pausados.' : 'Avisos diarios activos.'), toggle);
+  const schedule = state.notificationSchedule;
+  const scheduleForm = el('form');
+  const choices = box('fieldset', 'notification-days', el('legend', 'Días para recibir avisos'));
+  const dayInputs = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'].map((name, i) => {
+    const option = checkbox(name, schedule.days.includes(i), false, () => {});
+    choices.append(option);
+    return option.querySelector('input');
+  });
+  const time = field(scheduleForm, 'Hora de Colombia', 'time', schedule.time, { type: 'time' });
+  scheduleForm.prepend(choices);
+  scheduleForm.append(el('button', 'Guardar programación'), el('p', 'Los avisos llegan a este buzón. Con el tablero abierto se revisan cada 30 segundos; si está cerrado, se generan en la siguiente apertura o ejecución del servidor.', 'muted'));
+  scheduleForm.onsubmit = event => {
+    event.preventDefault();
+    update('/api/notifications', { days: dayInputs.flatMap((input, i) => input.checked ? [i] : []), time: time.value }, undefined, 'Programación de avisos guardada.');
+  };
   $('inbox').replaceChildren(box('div', 'row between', el('h2', 'Buzón de notificaciones'), close), preferences,
-    ...(records.length || paused ? records : [el('p', 'Los avisos se guardan diariamente a partir de las 5:00 a. m., hora de Colombia.')]));
+    details('Personalizar días y hora', scheduleForm),
+    ...(records.length || paused ? records : [el('p', 'Aún no hay avisos. Se guardarán según tu programación.')]));
   if (unread) $('inbox').append(button('Marcar todo como leído', () => {
     readThroughDate = [...state.notices, ...state.legacyNotices].map(notice => notice.date).sort().at(-1);
     renderInbox();
@@ -697,9 +715,13 @@ function renderCards() {
     el('span', String(day.day).padStart(2, '0'), 'resource-number'), el('h2', day.title),
     el('p', fullName(day), 'eyebrow'), el('p', day.summary, 'muted'),
     box('div', 'row', link('Abrir ficha en Moodle ↗', day.url, 'button secondary'),
-      button(state.canEdit ? 'Ver y editar checklist' : 'Ver checklist', () => select(day.id), 'text-button')))));
+      button('Ver checklist', () => select(day.id), 'text-button')),
+    ...(state.canEdit ? [lessonForm(day)] : []))));
   if (!cards.length) $('cards-list').append(el('p', 'No hay fichas que coincidan con los filtros.', 'muted'));
-  if (state.canEdit) $('cards-list').prepend(checklistFileImport());
+  if (state.canEdit) $('cards-list').prepend(box('section', 'card resource-admin',
+    el('h2', 'Administrar fichas compartidas'),
+    el('p', 'Lo que cargues aquí estará disponible para todas las cuentas. Cada persona conserva su propio checklist.'),
+    details('Crear un día nuevo', lessonForm()), checklistFileImport()));
 }
 $('cards-search').oninput = $('cards-module').onchange = () => state && renderCards();
 $('cards-clear').onclick = () => {
@@ -1337,7 +1359,8 @@ function render() {
     meter.value = progress.count;
     sidebar.replaceChildren(el('strong', 'Avance del día'), el('span', progressPercent(progress) + '%', 'progress-number'), meter, el('small', `${progress.count} de ${progress.total} pasos`));
   }
-  $('account-title').textContent = state.canEdit ? 'Cuenta titular' : 'Mi cuenta';
+  $('account-title').textContent = state.profile?.fullName || (state.canEdit ? 'Cuenta titular' : 'Mi cuenta');
+  $('clan-label').textContent = state.profile?.clan ? 'Clan ' + state.profile.clan : 'Clan Ritchie';
   $('sidebar-role').textContent = state.canEdit ? 'Cuenta titular · Medellín' : 'Estudiante · Medellín';
   renderSources();
   renderCards();
@@ -1371,6 +1394,6 @@ async function refresh(initial) {
 }
 refresh(true);
 setInterval(() => {
-  if (state && !$('inbox').hidden && !document.hidden) refresh(false);
+  if (state && !document.hidden) refresh(false);
 }, 30000);
 
