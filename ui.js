@@ -629,6 +629,52 @@ function renderInbox() {
   }, 'text-button inbox-read'));
 }
 const searchText = value => value.trim().toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+let importingChecklists = false;
+function checklistFileImport() {
+  const input = el('input');
+  input.type = 'file';
+  input.accept = '.json,application/json';
+  input.disabled = importingChecklists;
+  input.setAttribute('aria-label', 'Importar fichas desde archivo');
+  input.onchange = async () => {
+    if (importingChecklists || !input.files[0]) return;
+    let loaded = 0;
+    try {
+      const file = input.files[0];
+      if (file.size > 1000000) throw new Error('El archivo debe ocupar menos de 1 MB.');
+      const days = JSON.parse((await file.text()).replace(/^\uFEFF/, ''));
+      if (!Array.isArray(days) || !days.length || days.length > 50) throw new Error('Selecciona un archivo con entre 1 y 50 fichas.');
+      const seen = new Set();
+      for (const day of days) {
+        if (!day || !state.modules.some(m => m.id === day.module)
+          || !Number.isInteger(day.week) || !Number.isInteger(day.day)
+          || typeof day.title !== 'string' || typeof day.summary !== 'string'
+          || typeof day.technology !== 'string' || typeof day.url !== 'string'
+          || !Array.isArray(day.quests) || !day.quests.length) throw new Error('El archivo contiene una ficha incompleta.');
+        const key = [day.module, day.week, day.day].join('/');
+        if (seen.has(key)) throw new Error('El archivo repite un día del curso.');
+        seen.add(key);
+      }
+      importingChecklists = true;
+      input.disabled = true;
+      for (const day of days) {
+        const previous = state.lessons.find(d => d.module === day.module && d.week === day.week && d.day === day.day);
+        const ok = await update('/api/import', { ...day, id: previous?.id }, undefined,
+          `Fichas guardadas: ${loaded + 1} de ${days.length}.`);
+        if (!ok) return;
+        loaded++;
+      }
+      status(`Importación completada: ${loaded} fichas guardadas en este tablero.`);
+    } catch (error) {
+      status(`${error.message} Fichas guardadas: ${loaded}.`, true);
+    } finally {
+      importingChecklists = false;
+      renderCards();
+    }
+  };
+  return box('div', 'card', el('h2', 'Importar fichas desde archivo'),
+    el('p', 'Carga tus fichas privadas en este tablero. Las casillas y conversaciones se conservan; se rechazan cambios incompatibles con el progreso.'), input);
+}
 function renderCards() {
   const module = $('cards-module');
   const currentModule = module.value;
@@ -644,6 +690,7 @@ function renderCards() {
     box('div', 'row', link('Abrir ficha en Moodle ↗', day.url, 'button secondary'),
       button(state.canEdit ? 'Ver y editar checklist' : 'Ver checklist', () => select(day.id), 'text-button')))));
   if (!cards.length) $('cards-list').append(el('p', 'No hay fichas que coincidan con los filtros.', 'muted'));
+  if (state.canEdit) $('cards-list').prepend(checklistFileImport());
 }
 $('cards-search').oninput = $('cards-module').onchange = () => state && renderCards();
 $('cards-clear').onclick = () => {
