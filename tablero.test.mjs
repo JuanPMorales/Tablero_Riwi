@@ -227,7 +227,7 @@ test('cada cédula conserva sus propios cambios, sesión e historial de guía', 
 
 test('avance inicial, minirreto, completar y reabrir el día, guía e historial persistente', async () => {
   let result = (await call('/api/state')).json;
-  assert.deepEqual(result.resume, { id: 1, step: '2-0' });
+  assert.deepEqual(result.resume, { id: 1, step: '0-0' });
   assert.equal(result.checked.length, 0);
   const focus = await call('/api/focus', { id: 1, step: '2-0' });
   assert.deepEqual(focus.json.history, []);
@@ -239,7 +239,7 @@ test('avance inicial, minirreto, completar y reabrir el día, guía e historial 
   assert.equal((await call('/api/chat', { id: 1, message: 'Hola' })).status, 503);
 
   const partial = await call('/api/ticks', { id: 1, changes: { '2-0': true } });
-  assert.deepEqual(partial.json.resume, { id: 1, step: '2-1' });
+  assert.deepEqual(partial.json.resume, { id: 1, step: '0-0' });
   const finish = await call('/api/ticks', { id: 1, finish: true });
   assert.equal(finish.status, 200);
   assert.equal(finish.json.checked.length, 28);
@@ -301,7 +301,7 @@ test('fechas enlazadas, correcciones y aviso único a las 5:00 en Bogotá', asyn
   const record = (await s.snapshot()).notices[0];
   assert.equal(record.date, '2026-11-22');
   assert.equal(record.scheduled[0].lesson, 2);
-  assert.deepEqual(record.cursor, { id: 1, step: '2-0' });
+  assert.deepEqual(record.cursor, { id: 1, step: '0-0' });
   assert.equal(record.source.status, 'expired');
   assert.deepEqual(record.lessons.map(day => day.id), [2, 1]);
   await s.removeSession(entry.id);
@@ -529,7 +529,7 @@ test('el adaptador remoto aplica las mismas reglas de avance y agenda', async ()
   };
   const store = await openStore(null, remoteDatabase(client));
   try {
-    assert.deepEqual((await store.snapshot()).resume, { id: 1, step: '2-0' });
+    assert.deepEqual((await store.snapshot()).resume, { id: 1, step: '0-0' });
     assert.equal((await store.applyTicks(1, {}, true)).next, 2);
     await store.saveSession({
       lesson: null, module: 'hse', date: '2026-11-24', label: 'Habilidades', hours: '', source: 'https://moodle.riwi.io/my/',

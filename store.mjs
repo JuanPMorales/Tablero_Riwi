@@ -138,7 +138,7 @@ export async function openStore(path, db = localDatabase(path)) {
     const first = rows.find(day => !done(day, marks.get(day.id)));
     if (first) {
       await saveSetting('active', first.id);
-      if (!hadProgress && first.id === 1) await saveSetting('step', '2-0');
+      if (!hadProgress && first.id === 1) await saveSetting('step', keys(first)[0] ?? '');
     }
     await execute('INSERT INTO sessions(lesson,date,label,hours,source,consulted) VALUES '
       + RITCHIE_AGENDA.map(() => '(NULL,?,?,?,?,?)').join(','),
@@ -165,7 +165,7 @@ export async function openStore(path, db = localDatabase(path)) {
       if (owner) return settings;
       const personal = await all('SELECT key,value FROM settings WHERE key IN (?,?,?,?)',
         ['active', 'step', 'chat-focus', 'notifications-paused'].map(key => `${account}:${key}`));
-      return { ...settings, active: '1', step: '2-0', 'chat-focus': undefined,
+      return { ...settings, active: '1', step: '0-0', 'chat-focus': undefined,
         'notifications-paused': '0',
         ...Object.fromEntries(personal.map(row => [row.key.split(':')[1], row.value])) };
     }
