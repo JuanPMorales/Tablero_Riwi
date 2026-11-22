@@ -604,8 +604,20 @@ function renderInbox() {
   const unread = records.some(card => card.hasAttribute('data-unread'));
   $('inbox-toggle').toggleAttribute('data-unread', unread);
   const close = button('Cerrar', () => { setInbox(false); $('inbox-toggle').focus(); }, 'text-button');
-  $('inbox').replaceChildren(box('div', 'row between', el('h2', 'Buzón de notificaciones'), close),
-    ...(records.length ? records : [el('p', 'Los avisos se guardan diariamente a partir de las 5:00 a. m., hora de Colombia.')]));
+  const paused = state.notificationsPaused;
+  const toggle = button(paused ? 'Reanudar avisos' : 'Pausar avisos', async () => {
+    toggle.disabled = true;
+    try {
+      await update('/api/notifications', { paused: !paused }, undefined, paused ? 'Avisos reanudados.' : 'Avisos pausados.');
+    } finally {
+      toggle.disabled = false;
+      if (!$('inbox').hidden) $('inbox-preferences')?.focus();
+    }
+  }, 'secondary');
+  toggle.id = 'inbox-preferences';
+  const preferences = box('div', 'row between', el('p', paused ? 'Avisos diarios pausados.' : 'Avisos diarios activos.'), toggle);
+  $('inbox').replaceChildren(box('div', 'row between', el('h2', 'Buzón de notificaciones'), close), preferences,
+    ...(records.length || paused ? records : [el('p', 'Los avisos se guardan diariamente a partir de las 5:00 a. m., hora de Colombia.')]));
   if (unread) $('inbox').append(button('Marcar todo como leído', () => {
     readThroughDate = [...state.notices, ...state.legacyNotices].map(notice => notice.date).sort().at(-1);
     renderInbox();
