@@ -25,6 +25,8 @@
     { "source": "/health", "destination": "/api/tablero?path=/health" },
     { "source": "/api/state", "destination": "/api/tablero?path=/api/state" },
     { "source": "/api/ticks", "destination": "/api/tablero?path=/api/ticks" },
+    { "source": "/api/week/reopen", "destination": "/api/tablero?path=/api/week/reopen" },
+    { "source": "/api/notifications", "destination": "/api/tablero?path=/api/notifications" },
     { "source": "/api/history/note", "destination": "/api/tablero?path=/api/history/note" },
     { "source": "/api/import", "destination": "/api/tablero?path=/api/import" },
     { "source": "/api/session", "destination": "/api/tablero?path=/api/session" },

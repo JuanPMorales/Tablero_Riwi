@@ -241,9 +241,20 @@ async function request(req, res, pathname) {
   }
   if (path === '/api/ticks') {
     if (!integer(p.id)) throw fault(400, 'Día inválido.');
-    const { next, invalid } = await store.applyTicks(p.id, p.changes, p.finish === true);
+    const { next, invalid, selected } = await store.applyTicks(p.id, p.changes, p.finish === true);
     if (invalid) throw fault(400, 'Las casillas no corresponden a este día.');
-    return json(res, 200, { ...await state(store, canEdit), next });
+    return json(res, 200, { ...await state(store, canEdit), next, ...(selected ? { selected } : {}) });
+  }
+  if (path === '/api/week/reopen') {
+    if (!integer(p.id)) throw fault(400, 'Día inválido.');
+    const { invalid, selected } = await store.applyTicks(p.id, null, false, true);
+    if (invalid) throw fault(400, 'La semana no tiene pasos cargados.');
+    return json(res, 200, { ...await state(store, canEdit), selected });
+  }
+  if (path === '/api/notifications') {
+    if (typeof p.paused !== 'boolean') throw fault(400, 'Selecciona si quieres pausar los avisos.');
+    await store.setNotificationsPaused(p.paused);
+    return json(res, 200, await state(store, canEdit));
   }
   if (path === '/api/history/note') {
     const day = await lessonFor(store, p.id);

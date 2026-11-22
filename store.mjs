@@ -163,9 +163,10 @@ export async function openStore(path, db = localDatabase(path)) {
     async function personalSettings() {
       const settings = await readSettings();
       if (owner) return settings;
-      const personal = await all('SELECT key,value FROM settings WHERE key IN (?,?,?)',
-        ['active', 'step', 'chat-focus'].map(key => `${account}:${key}`));
+      const personal = await all('SELECT key,value FROM settings WHERE key IN (?,?,?,?)',
+        ['active', 'step', 'chat-focus', 'notifications-paused'].map(key => `${account}:${key}`));
       return { ...settings, active: '1', step: '2-0', 'chat-focus': undefined,
+        'notifications-paused': '0',
         ...Object.fromEntries(personal.map(row => [row.key.split(':')[1], row.value])) };
     }
     async function writeMarks(lesson, list, checked) {
@@ -182,12 +183,21 @@ export async function openStore(path, db = localDatabase(path)) {
       }
     }
 
-    function applyTicks(id, changes, finish) {
+    function applyTicks(id, changes, finish, reopenWeek = false) {
       return transaction(async () => {
         const rows = await lessons();
         const day = rows.find(row => row.id === id);
         if (!day) return { invalid: true };
         const steps = keys(day);
+        if (reopenWeek) {
+          const days = rows.filter(row => row.module === day.module && row.week === day.week);
+          const first = days.find(row => keys(row).length);
+          if (!first) return { invalid: true };
+          for (const row of days) await writeMarks(row.id, keys(row), false);
+          await setPersonal('active', first.id);
+          await setPersonal('step', keys(first)[0]);
+          return { next: null, selected: first.id };
+        }
         if (finish && steps.length) changes = Object.fromEntries(steps.map(step => [step, true]));
         if (!changes || typeof changes !== 'object' || Array.isArray(changes) || !Object.keys(changes).length
           || Object.entries(changes).some(([key, value]) => !steps.includes(key) || typeof value !== 'boolean')) return { invalid: true };
@@ -208,7 +218,10 @@ export async function openStore(path, db = localDatabase(path)) {
         const isComplete = done(day, checked);
         let next = null;
         if (isComplete && !wasComplete) await execute('INSERT OR IGNORE INTO account_completions VALUES (?,?,?)', [account, id, new Date().toISOString()]);
-        if (isComplete && (finish || active?.id === id)) {
+        if (drop.length) {
+          await setPersonal('active', id);
+          await setPersonal('step', steps.find(step => !checked.has(step)) ?? '');
+        } else if (isComplete && (finish || active?.id === id)) {
           const index = rows.indexOf(day);
           next = [...rows.slice(index + 1), ...rows.slice(0, index)].find(row => !done(row, marks.get(row.id)))?.id ?? null;
           await setPersonal('active', next ?? '');
@@ -218,21 +231,27 @@ export async function openStore(path, db = localDatabase(path)) {
           await setPersonal('active', id);
           await setPersonal('step', resume(rows, marks, settings)?.step ?? '');
         }
-        return { next };
+        return { next, ...(drop.length ? { selected: id } : {}) };
       });
     }
     const hasNotice = async date => Boolean(await get('SELECT 1 FROM account_daily WHERE account=? AND date=?', [account, date]));
-    async function makeNotice(now = new Date()) {
-      const { date, hour } = bogota(now);
-      if (hour < 5) return false;
-      const [rows, settings, marks, agenda] = await Promise.all([lessons(), personalSettings(), readTicks(), sessions()]);
-      const cursor = resume(rows, indexTicks(marks), settings);
-      const scheduled = agenda.filter(row => row.date === date);
-      const ids = [...new Set(scheduled.map(row => row.lesson).filter(Boolean))];
-      if (cursor && !ids.includes(cursor.id)) ids.push(cursor.id);
-      const data = { date, created: now.toISOString(), track: TRAYECTO, cursor, scheduled, source: source(settings),
-        lessons: ids.map(id => rows.find(day => day.id === id)).filter(Boolean) };
-      return Boolean((await execute('INSERT OR IGNORE INTO account_daily VALUES (?,?,?)', [account, date, JSON.stringify(data)])).changes);
+    function setNotificationsPaused(paused) {
+      return transaction(() => setPersonal('notifications-paused', paused ? '1' : '0'));
+    }
+    function makeNotice(now = new Date()) {
+      return transaction(async () => {
+        const { date, hour } = bogota(now);
+        if (hour < 5) return false;
+        const [rows, settings, marks, agenda] = await Promise.all([lessons(), personalSettings(), readTicks(), sessions()]);
+        if (settings['notifications-paused'] === '1') return false;
+        const cursor = resume(rows, indexTicks(marks), settings);
+        const scheduled = agenda.filter(row => row.date === date);
+        const ids = [...new Set(scheduled.map(row => row.lesson).filter(Boolean))];
+        if (cursor && !ids.includes(cursor.id)) ids.push(cursor.id);
+        const data = { date, created: now.toISOString(), track: TRAYECTO, cursor, scheduled, source: source(settings),
+          lessons: ids.map(id => rows.find(day => day.id === id)).filter(Boolean) };
+        return Boolean((await execute('INSERT OR IGNORE INTO account_daily VALUES (?,?,?)', [account, date, JSON.stringify(data)])).changes);
+      });
     }
     function saveHistoryNote(id, note) {
       if (!note) return execute('DELETE FROM account_history_notes WHERE account=? AND lesson=?', [account, id]);
@@ -250,6 +269,7 @@ export async function openStore(path, db = localDatabase(path)) {
       return {
         today: bogota(now).date, track: TRAYECTO, modules: MODULES, lessons: rows, checked, sessions: agenda,
         resume: resume(rows, indexTicks(checked), settings), source: source(settings), history,
+        notificationsPaused: settings['notifications-paused'] === '1',
         historyNotes: Object.fromEntries(notes.map(row => [row.lesson, row.note])),
         notices: notices.map(row => JSON.parse(row.data)), legacyNotices, chatFocus: JSON.parse(settings['chat-focus'] || 'null'),
       };
@@ -333,7 +353,7 @@ export async function openStore(path, db = localDatabase(path)) {
         return chatHistory(id, step);
       });
     }
-    return { find, ticks, applyTicks, hasNotice, makeNotice, snapshot, chatHistory, chatRevision, deleteChat, saveChat, guideHistory, saveGuide,
+    return { find, ticks, applyTicks, setNotificationsPaused, hasNotice, makeNotice, snapshot, chatHistory, chatRevision, deleteChat, saveChat, guideHistory, saveGuide,
       saveHistoryNote, listChats, createChat, findChat, legacyChatTitle, renameChat,
       focus: (id, step, chat) => setPersonal('chat-focus', JSON.stringify({ id, step, ...(chat ? { chat } : {}) })) };
   }

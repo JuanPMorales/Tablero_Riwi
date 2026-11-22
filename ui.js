@@ -192,7 +192,8 @@ function setTicks(id, ids, value, finish = false) {
   const payload = { id, finish: finish && value, changes: Object.fromEntries(ids.map(key => [key, value])) };
   update('/api/ticks', payload,
     next => {
-      if (selected === id && finish && value && next.next) selected = next.next;
+      if (next.selected) selected = next.selected;
+      else if (selected === id && finish && value && next.next) selected = next.next;
     }, next => finish && value && next.next ? 'Día guardado. Estás viendo el siguiente día pendiente.' : 'Avance guardado.');
 }
 function field(form, label, name, value, options = {}) {
@@ -333,6 +334,16 @@ function renderCheck() {
     const ids = d.quests.flatMap((q, i) => q[2].map((_, j) => i + '-' + j));
     intro.append(bar, el('small', progress.count + ' de ' + progress.total + ' pasos'), checkbox('Día completado',
       progress.done, progress.count > 0 && !progress.done, value => setTicks(d.id, ids, value, true)));
+    const days = state.lessons.filter(day => day.module === d.module && day.week === d.week);
+    const marked = days.some(day => completed(day).count > 0);
+    const reopen = button('Desmarcar semana ' + d.week, () => {
+      update('/api/week/reopen', { id: d.id }, next => {
+        selected = next.selected;
+        opened.delete(selected);
+      }, 'Semana desmarcada. Retomarás desde su primer día con pasos.');
+    }, 'secondary');
+    reopen.disabled = !marked;
+    intro.append(reopen);
   } else intro.append(el('p', 'Pendiente de cargar las instrucciones de este día.', 'eyebrow'));
   $('check').replaceChildren(resume, scheduled, box('label', '', 'Día del curso', picker), intro);
   if (d.quests.length) $('check').append(el('h3', 'Tus MiniRetos de hoy'));
@@ -447,6 +458,10 @@ function noticeDay(day, cursor) {
   return card;
 }
 function renderInbox() {
+  const paused = state.notificationsPaused;
+  const preferences = box('div', 'card', el('p', paused ? 'Los avisos diarios están pausados.' : 'Los avisos diarios están activos.'),
+    button(paused ? 'Reanudar avisos' : 'Pausar avisos', () =>
+      update('/api/notifications', { paused: !paused }, undefined, paused ? 'Avisos reanudados.' : 'Avisos pausados.'), 'secondary'));
   const records = state.notices.map(notice => {
     const card = box('article', 'card', el('h3', dateLabel(notice.date, true)), el('small', notice.track),
       el('h4', 'Programado para el clan'));
@@ -472,7 +487,8 @@ function renderInbox() {
     const day = lesson(entry.lesson);
     if (day) records.push(box('article', 'card', el('h3', dateLabel(entry.date, true)), el('small', 'Aviso de la Beta'), noticeDay(day)));
   }
-  $('inbox').replaceChildren(el('h2', 'Avisos'), ...(records.length ? records : [el('p', 'Los avisos se guardan diariamente a partir de las 5:00 a. m., hora de Colombia.')]));
+  $('inbox').replaceChildren(el('h2', 'Avisos'), preferences,
+    ...(records.length ? records : [el('p', paused ? 'Puedes reanudar los avisos cuando quieras.' : 'Los avisos se guardan diariamente a partir de las 5:00 a. m., hora de Colombia.')]));
 }
 const searchText = value => value.trim().toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
 const historyDrafts = new Map();

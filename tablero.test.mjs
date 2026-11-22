@@ -533,6 +533,71 @@ test('el adaptador remoto aplica las mismas reglas de avance y agenda', async ()
   }
 });
 
+test('pausar avisos se conserva por cuenta y evita avisos nuevos hasta reanudar', async () => {
+  const store = await openStore(':memory:');
+  const now = new Date('2026-11-21T12:00:00Z');
+  try {
+    await store.setNotificationsPaused(true);
+    assert.equal(await store.makeNotice(now), false);
+    assert.equal((await store.snapshot(now)).notificationsPaused, true);
+    const student = store.forAccount('student-fixture');
+    assert.equal((await student.snapshot(now)).notificationsPaused, false);
+    assert.equal(await student.makeNotice(now), true);
+    await student.setNotificationsPaused(true);
+    await store.setNotificationsPaused(false);
+    assert.equal(await store.makeNotice(now), true);
+    assert.equal(await store.makeNotice(now), false);
+    assert.equal((await student.snapshot(now)).notificationsPaused, true);
+    await store.makeNotice(new Date('2026-11-22T12:00:00Z'));
+    assert.equal(await student.makeNotice(new Date('2026-11-22T12:00:00Z')), false);
+    assert.equal((await student.snapshot(now)).notices.length, 1);
+    assert.equal((await store.snapshot(now)).notices.length, 2);
+    assert.equal((await call('/api/notifications', { paused: 'sí' })).status, 400);
+    assert.equal((await call('/api/notifications', { paused: true })).json.notificationsPaused, true);
+    assert.equal((await call('/api/state')).json.notificationsPaused, true);
+    assert.equal((await call('/api/notifications', { paused: false })).json.notificationsPaused, false);
+    assert.equal((await call('/api/notifications', { paused: true }, { auth: false })).status, 401);
+  } finally {
+    store.close();
+  }
+});
+
+test('reabrir un día o una semana fija el retorno y conserva el avance de otras semanas y cuentas', async () => {
+  const store = await openStore(':memory:');
+  try {
+    const initial = await store.snapshot();
+    const data = { title: 'Ficha de prueba', summary: 'Prueba de avance', technology: 'JavaScript',
+      url: initial.lessons[0].url, consulted: '2026-11-21',
+      quests: [['Reto', 'Contexto', ['Primer paso', 'Segundo paso']]] };
+    for (const id of [2, 3, 4]) await store.saveLesson(id, { ...initial.lessons.find(day => day.id === id), ...data });
+    for (const id of [1, 2, 3, 4]) await store.applyTicks(id, {}, true);
+    const other = store.forAccount('other-fixture');
+    await other.applyTicks(1, {}, true);
+    await store.applyTicks(2, { '0-1': false }, false);
+    assert.deepEqual((await store.snapshot()).resume, { id: 2, step: '0-1' });
+    await store.applyTicks(3, { '0-0': true }, false);
+    assert.equal((await store.snapshot()).resume.id, 2);
+    await store.applyTicks(1, { '2-0': false }, false);
+    assert.deepEqual((await store.snapshot()).resume, { id: 1, step: '2-0' });
+    await store.applyTicks(2, {}, true);
+    const result = await store.applyTicks(3, null, false, true);
+    assert.equal(result.selected, 1);
+    const state = await store.snapshot();
+    assert.deepEqual(state.resume, { id: 1, step: '0-0' });
+    assert.deepEqual([...new Set(state.checked.map(row => row.lesson))], [4]);
+    assert.equal((await other.snapshot()).checked.length, 28);
+    assert.equal(state.history.filter(row => [1, 2, 3].includes(row.lesson)).length, 3);
+    assert.equal((await call('/api/week/reopen', { id: 999999 })).status, 400);
+    assert.equal((await call('/api/week/reopen', { id: 1 }, { auth: false })).status, 401);
+    const reopened = await call('/api/week/reopen', { id: 1 });
+    assert.equal(reopened.status, 200);
+    assert.equal(reopened.json.resume.id, reopened.json.selected);
+    assert.equal((await call('/api/state')).json.resume.id, reopened.json.selected);
+  } finally {
+    store.close();
+  }
+});
+
 test.after(async () => {
   await closeDatabase();
   for (const file of ['schedule.sqlite', 'beta.sqlite', 'handlers.sqlite']) rmSync(join(directory, file), { force: true });

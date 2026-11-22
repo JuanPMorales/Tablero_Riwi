@@ -8,8 +8,8 @@ export const ZONE = 'America/Bogota';
 export const VERIFIED = '2026-11-14';
 export const MODULES = [
   { id: 'algoritmia', name: 'Algoritmia 2', url: MOODLE + '/mod/page/view.php?id=7614' },
-  { id: 'ia', name: 'IA Dev Tools', url: COURSE },
-  { id: 'datos', name: 'Análisis de Datos', url: COURSE },
+  { id: 'ia', name: 'IA Dev Tools', url: MOODLE + '/mod/page/view.php?id=7727' },
+  { id: 'datos', name: 'Análisis de Datos', url: MOODLE + '/mod/page/view.php?id=7906' },
   { id: 'ingles', name: 'Inglés', url: MY_COURSES },
   { id: 'hse', name: 'Habilidades Socioemocionales (HSE)', url: MY_COURSES },
 ];
