@@ -200,6 +200,15 @@ test('cada cédula conserva sus propios cambios, sesión e historial de guía', 
   const login = await call('/api/auth/login', details, { auth: false });
   assert.equal(login.status, 200);
   const otherDevice = login.headers['Set-Cookie'].split(';')[0];
+  await call('/api/notifications', { paused: true }, { cookie: otherDevice });
+  const relogin = await call('/api/auth/login', details, { auth: false });
+  const freshCookie = relogin.headers['Set-Cookie'].split(';')[0];
+  await call('/api/auth/logout', {}, { cookie: freshCookie });
+  const newLogin = await call('/api/auth/login', details, { auth: false });
+  const resumedCookie = newLogin.headers['Set-Cookie'].split(';')[0];
+  assert.equal((await call('/api/state', undefined, { cookie: resumedCookie })).json.notificationsPaused, true);
+  assert.equal((await call('/api/state')).json.notificationsPaused, false);
+  await call('/api/notifications', { paused: false }, { cookie: resumedCookie });
   assert.equal((await call('/api/state', undefined, { cookie: otherDevice })).json.checked.length, 1);
   assert.equal((await call('/api/chat/1/2-0', undefined, { cookie: otherDevice })).json.length, 2);
   assert.equal((await call('/api/history/note', { id: 1, note: ' Repasar reduce ' }, { cookie: otherDevice })).json.historyNotes[1], 'Repasar reduce');
@@ -596,6 +605,63 @@ test('reabrir un día o una semana fija el retorno y conserva el avance de otras
   } finally {
     store.close();
   }
+});
+
+test('la pausa y el retorno sobreviven al reinicio sin afectar otros módulos ni cuentas', async () => {
+  const path = join(directory, 'preferences.sqlite');
+  let store = await openStore(path);
+  try {
+    const initial = await store.snapshot();
+    const data = { module: 'ia', week: 2, day: 2, title: 'Ficha sintética', summary: 'Prueba',
+      technology: 'JavaScript', url: initial.lessons[0].url,
+      quests: [['Prueba', 'Contexto sintético', ['Paso uno', 'Paso dos']]] };
+    const second = await store.saveLesson(null, data);
+    const first = await store.saveLesson(null, { ...data, day: 1 });
+    const otherModule = await store.saveLesson(null, { ...data, module: 'datos', day: 1 });
+    const account = store.forAccount('persistent-fixture');
+    for (const id of [first, second, otherModule]) await account.applyTicks(id, {}, true);
+    await store.applyTicks(first, {}, true);
+    const now = new Date('2026-11-21T12:00:00Z');
+    await account.makeNotice(now);
+    await account.setNotificationsPaused(true);
+    await account.applyTicks(second, { '0-1': false }, false);
+    store.close();
+    store = await openStore(path);
+    const reopened = store.forAccount('persistent-fixture');
+    assert.deepEqual((await reopened.snapshot()).resume, { id: second, step: '0-1' });
+    assert.equal((await reopened.snapshot()).notificationsPaused, true);
+    assert.equal(await reopened.makeNotice(new Date('2026-11-22T12:00:00Z')), false);
+    assert.equal((await reopened.snapshot()).notices.length, 1);
+    await reopened.applyTicks(second, null, false, true);
+    store.close();
+    store = await openStore(path);
+    const state = await store.forAccount('persistent-fixture').snapshot();
+    assert.deepEqual(state.resume, { id: first, step: '0-0' });
+    assert.deepEqual([...new Set(state.checked.map(row => row.lesson))], [otherModule]);
+    assert.equal((await store.snapshot()).checked.filter(row => row.lesson === first).length, 2);
+    await store.forAccount('persistent-fixture').setNotificationsPaused(false);
+    assert.equal(await store.forAccount('persistent-fixture').makeNotice(new Date('2026-11-22T12:00:00Z')), true);
+  } finally {
+    store.close();
+    rmSync(path, { force: true });
+  }
+});
+
+test('la carga local revisada amplía instrucciones sin perder casillas ni conversaciones', async () => {
+  const store = await openStore(':memory:');
+  try {
+    const original = await store.find(1);
+    await store.applyTicks(1, { '2-0': true }, false);
+    await store.saveChat(1, '2-0', 'Consulta previa', 'Respuesta guardada', 0);
+    const before = await store.snapshot();
+    const expanded = { ...original, quests: original.quests.map(q => [q[0], q[1], q[2].map(s => s + ' Detalle verificado.'), q[3]]) };
+    assert.equal(await store.saveLesson(1, expanded), null);
+    assert.equal(await store.saveLesson(1, expanded, { preserveStepPositions: true }), 1);
+    assert.deepEqual((await store.snapshot()).checked, before.checked);
+    assert.equal((await store.chatHistory(1, '2-0')).length, 2);
+    const changed = { ...expanded, quests: expanded.quests.map((q,i) => i ? q : [q[0],q[1],q[2].slice(1),q[3]]) };
+    assert.equal(await store.saveLesson(1, changed, { preserveStepPositions: true }), null);
+  } finally { store.close(); }
 });
 
 test.after(async () => {

@@ -357,16 +357,19 @@ export async function openStore(path, db = localDatabase(path)) {
       saveHistoryNote, listChats, createChat, findChat, legacyChatTitle, renameChat,
       focus: (id, step, chat) => setPersonal('chat-focus', JSON.stringify({ id, step, ...(chat ? { chat } : {}) })) };
   }
-  function saveLesson(id, data) {
+  function saveLesson(id, data, { preserveStepPositions = false } = {}) {
     return transaction(async () => {
       if (id) {
         const lesson = await find(id);
         if (!lesson) return null;
         const previous = lesson.quests;
+        const samePositions = previous.length === data.quests.length && previous.every((quest, i) =>
+          data.quests[i]?.[0] === quest[0] && data.quests[i][2].length === quest[2].length);
         const sameSteps = previous.every((quest, i) => data.quests[i]?.[0] === quest[0]
           && quest[2].every((step, j) => step === data.quests[i][2][j]));
         // La Beta identifica las casillas y los hilos por posición.
-        if (!sameSteps && await get(`SELECT 1 FROM account_ticks WHERE lesson=?
+        // Una carga local revisada puede ampliar la redacción sin cambiar las claves del avance.
+        if (!sameSteps && !(preserveStepPositions && samePositions) && await get(`SELECT 1 FROM account_ticks WHERE lesson=?
           UNION ALL SELECT 1 FROM account_completions WHERE lesson=?
           UNION ALL SELECT 1 FROM account_messages WHERE lesson=?
           UNION ALL SELECT 1 FROM chat WHERE lesson=? LIMIT 1`, [id, id, id, id])) return null;

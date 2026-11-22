@@ -229,6 +229,10 @@ function setTicks(id, ids, value, finish = false) {
   const payload = { id, finish: finish && value, changes: Object.fromEntries(ids.map(key => [key, value])) };
   update('/api/ticks', payload,
     next => {
+      if (next.selected) {
+        selected = next.selected;
+        selectedSteps.delete(selected);
+      }
       if (selected === id && finish && value && next.next) selected = next.next;
     }, next => finish && value && next.next ? 'Día guardado. Estás viendo el siguiente día pendiente.' : 'Avance guardado.');
 }
