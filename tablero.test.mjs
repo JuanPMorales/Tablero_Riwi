@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import { resolveObjectURL } from 'node:buffer';
 import { Readable } from 'node:stream';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';

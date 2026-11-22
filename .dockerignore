@@ -3,6 +3,9 @@
 *.test.mjs
 !package.json
 !package-lock.json
+!riwi-*.svg
+!riwi-inter.woff2
+!Inter-OFL.txt
 !index.html
 !login.html
 !login.js
