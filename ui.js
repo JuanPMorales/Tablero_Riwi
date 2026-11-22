@@ -361,6 +361,11 @@ function coursePicker(d) {
   picker.onchange = () => select(Number(picker.value));
   return picker;
 }
+function richText(value) {
+  const node = el('div', null, 'lesson-document chat-markdown');
+  node.innerHTML = RiwiChatBlocks.markdown.render(value || '');
+  return node;
+}
 function renderCheck() {
   const d = lesson(selected);
   if (!d) return;
@@ -415,7 +420,7 @@ function renderCheck() {
       opened.set(d.id, openActivities);
     };
     if (context) card.append(box('section', 'quest-meta activity-context',
-      el('h3', 'Contexto del minirreto'), el('p', context, 'copy')));
+      el('h3', 'Contexto del minirreto'), richText(context)));
     steps.forEach((task, j) => {
       const key = ids[j];
       const check = checkbox(task, progress.marked.has(key), false, value => setTicks(d.id, [key], value));
@@ -432,8 +437,10 @@ function renderCheck() {
       card.append(box('div', step === key ? 'step current' : 'step', check,
         box('div', '', selectStep, el('small', 'Paso ' + (j + 1) + (progress.marked.has(key) ? ' · Completado' : '')))));
     });
-    if (meta) card.append(details('Requisitos y entrega', el('p', meta.requirements, 'copy'),
-      el('p', meta.criteria, 'copy'), el('p', meta.deliverable, 'copy')));
+    if (meta) card.append(details('Requisitos y entrega',
+      box('section', 'quest-meta', el('h3', 'Requisitos'), richText(meta.requirements)),
+      box('section', 'quest-meta', el('h3', 'Criterios'), richText(meta.criteria)),
+      box('section', 'quest-meta', el('h3', 'Entregable'), richText(meta.deliverable))));
     card.append(checkbox('Completar toda la actividad', count === ids.length, count > 0 && count < ids.length,
       value => setTicks(d.id, ids, value)));
     route.append(card);
@@ -444,7 +451,7 @@ function renderCheck() {
   const detailTitle = el('h2', quest?.[2][stepIndex] || d.title);
   detailTitle.tabIndex = -1;
   const detail = box('aside', 'card step-detail', el('span', progress.count ? 'Estás aquí' : 'Empieza aquí', 'pill'),
-    detailTitle, el('p', quest?.[1] || d.summary, 'copy muted'));
+    detailTitle, details('Consultar contexto del minirreto', richText(quest?.[1] || d.summary)));
   detail.id = 'step-detail';
   if (quest) detail.append(el('p', 'Apoyo para este paso', 'eyebrow'),
     box('div', 'step-actions', button('Pedir guía →', () => guide('basic')),
@@ -1180,7 +1187,7 @@ async function openChat(selection, guide, reveal = true) {
   lastChat = selection;
   $('chat-title').textContent = selection.title || (quest ? 'Guía paso a paso' : 'Chat Riwi');
   const context = details(quest ? cursorLabel(focus, day) : fullName(day), el('small', state.track),
-    el('h3', quest ? cursorLabel(focus, day) : fullName(day)), el('p', quest ? quest[1] : day.summary),
+    el('h3', quest ? cursorLabel(focus, day) : fullName(day)), richText(quest ? quest[1] : day.summary),
     el('p', quest ? quest[2][j] : day.title), el('small', day.technology || 'Tecnología pendiente de verificar.'),
     ...(quest ? [button('Ver o generar guía de IA', () => sendChat({ ...selection, guide: true }), 'secondary'),
       button('Pedir más explicación', () => sendChat({ ...selection, message: 'Explícame este paso con más detalle y otro ejemplo.' }), 'secondary')] : []),

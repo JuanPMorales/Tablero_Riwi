@@ -450,3 +450,35 @@ progress::-moz-progress-bar { background: var(--meter, var(--accent)); border-ra
 }
 
 .inbox-read { width: 100%; }
+
+/* Keep reading surfaces contained on every page, including long source code. */
+main, main > section, .dashboard-grid > *, .activity, .step > div,
+.cards-grid > *, .history-record, .calendar-days > * { min-width: 0; }
+.activity-context { margin: 16px 0; padding: clamp(14px, 2vw, 22px); border: 1px solid var(--line); border-radius: 12px; }
+.activity-context > h3, .quest-meta > h3 { margin: 0 0 12px; font-size: 1rem; }
+.lesson-document.chat-markdown { padding: 0; line-height: 1.75; font-size: .95rem; white-space: normal; }
+.lesson-document > :first-child { margin-top: 0; }
+.lesson-document p { margin: 0 0 1em; }
+.lesson-document pre { max-width: 100%; }
+.lesson-document .chat-code { border: 1px solid #28344a; padding: 18px; font-size: .88rem; }
+.lesson-document table { width: 100%; max-width: 100%; font-size: .88rem; }
+.lesson-document th { white-space: nowrap; }
+.step-detail > details { margin: 16px 0; }
+.activity-heading strong { flex: 1; min-width: 0; }
+.activity-heading small { flex-shrink: 0; }
+.quest-meta + .quest-meta { margin-top: 12px; }
+@media (min-width: 1051px) {
+  .dashboard-grid { grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); }
+  .step-detail { position: sticky; top: 22px; }
+}
+@media (max-width: 1050px) {
+  .dashboard-grid { grid-template-columns: minmax(0, 1fr); }
+  .dashboard-grid .step-detail { position: static; }
+}
+@media (max-width: 570px) {
+  .activity-heading { flex-wrap: wrap; }
+  .activity-heading strong { flex-basis: calc(100% - 65px); }
+  .activity-heading small { margin-left: 42px; }
+  .activity-context { padding: 13px; }
+  .lesson-document .chat-code { padding: 12px; }
+}
