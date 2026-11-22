@@ -1,5 +1,9 @@
-const $ = id => document.getElementById(id);
+﻿const $ = id => document.getElementById(id);
 const tabs = [...document.querySelectorAll('#sidebar-nav [data-tab]')];
+for (const item of tabs) {
+  item.setAttribute('aria-label', item.textContent.trim());
+  item.title = item.textContent.trim();
+}
 const mobileMenu = matchMedia('(max-width: 730px)');
 const menuToggle = $('menu-toggle');
 let desktopMenuCollapsed = false;
@@ -79,9 +83,10 @@ async function api(path, data, signal) {
   return payload;
 }
 
-let state, selected, focus, week, pending = false, chatPending = false, chatLoad = 0;
+let state, selected, focus, calendarDate, pending = false, chatPending = false, chatLoad = 0;
 let connection, googlePending, threadHistory = [], threadRevision, ollamaRequest;
 let activeTab = 'check';
+let readThroughDate = '';
 let mutationQueue = Promise.resolve();
 $('logout').onclick = async () => {
   try {
@@ -132,7 +137,8 @@ function cursorLabel(cursor, day) {
   const quest = day.quests[i];
   return quest ? fullName(day) + ` · MiniReto ${i + 1} · ${quest[0]} · Paso ${j + 1}` : fullName(day);
 }
-function show(tab) {
+function show(tab, chatMode = '') {
+  setInbox(false);
   activeTab = tab;
   const returnFocus = mobileMenu.matches && mobileMenuOpen && $('sidebar-nav').contains(document.activeElement);
   mobileMenuOpen = false;
@@ -142,18 +148,49 @@ function show(tab) {
     else item.removeAttribute('aria-current');
     $(item.dataset.tab).hidden = !current;
   }
+  $('breadcrumb').textContent = tabs.find(item => item.dataset.tab === tab).textContent.trim();
+  document.querySelectorAll('.mobile-nav button').forEach(item => {
+    if (item.dataset.section === tab) item.setAttribute('aria-current', 'page');
+    else item.removeAttribute('aria-current');
+  });
+  $('sources').hidden = tab !== 'cards';
   updateMenu();
   if (returnFocus) {
     $(tab).tabIndex = -1;
     $(tab).focus({ preventScroll: true });
   }
-  if (state && tab === 'chat') openChat(focus || { id: selected, step: '' }, false);
+  if (state && tab === 'chat') {
+    setConnectionView(false);
+    setChatListView(!chatMode);
+    void openChat(focus || { id: selected, step: '' }, chatMode, Boolean(chatMode));
+  }
   window.scrollTo(0, 0);
 }
-for (const tab of tabs) tab.onclick = () => state && show(tab.dataset.tab);
+for (const tab of [...tabs, ...document.querySelectorAll('.mobile-nav button')]) {
+  tab.onclick = () => state && show(tab.dataset.tab || tab.dataset.section);
+}
+function setInbox(open) {
+  $('inbox').hidden = !open;
+  $('inbox-toggle').setAttribute('aria-expanded', String(open));
+}
+$('inbox-toggle').onclick = () => {
+  if (!state) return;
+  const open = $('inbox').hidden;
+  setInbox(open);
+  if (open) refresh(false);
+};
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !$('inbox').hidden && !$('delete-chat-dialog').open) {
+    setInbox(false);
+    $('inbox-toggle').focus();
+  }
+});
 function select(id, step) {
   selected = id;
-  if (step) opened.set(id, new Set([Number(step.split('-')[0])]));
+  if (step) {
+    opened.set(id, new Set([Number(step.split('-')[0])]));
+    selectedSteps.set(id, step);
+  }
   renderCheck();
   show('check');
 }
@@ -192,8 +229,7 @@ function setTicks(id, ids, value, finish = false) {
   const payload = { id, finish: finish && value, changes: Object.fromEntries(ids.map(key => [key, value])) };
   update('/api/ticks', payload,
     next => {
-      if (next.selected) selected = next.selected;
-      else if (selected === id && finish && value && next.next) selected = next.next;
+      if (selected === id && finish && value && next.next) selected = next.next;
     }, next => finish && value && next.next ? 'Día guardado. Estás viendo el siguiente día pendiente.' : 'Avance guardado.');
 }
 function field(form, label, name, value, options = {}) {
@@ -293,17 +329,18 @@ function lessonForm(day) {
   };
   return details(day?.quests.length ? 'Editar ficha de Moodle' : 'Cargar checklist', el('p', 'En Moodle abre Semana → Día correspondiente → Reto → Tus MiniRetos de hoy. Expande cada tarjeta y registra los datos de la ficha.'), form);
 }
-function renderCheck() {
-  const d = lesson(selected);
-  if (!d) return;
-  const cursor = state.resume;
-  const resume = box('article', 'card hero', el('small', state.track), el('h2', 'Retoma aquí'),
-    el('p', cursorLabel(cursor, lesson(cursor?.id))));
-  if (cursor && cursor.id !== d.id) resume.append(openDay(cursor.id, cursor.step));
-  const today = state.sessions.filter(row => row.date === state.today);
-  const scheduled = box('article', 'card', el('h3', 'Programado para el clan'), el('small', dateLabel(state.today, true)));
-  if (!today.length) scheduled.append(el('p', 'Sin programación verificada'));
-  today.forEach(session => scheduled.append(sessionContent(session, true)));
+const selectedSteps = new Map();
+function progressBar({total, count}, label) {
+  const meter = el('progress');
+  meter.max = total || 1;
+  meter.value = count;
+  meter.setAttribute('aria-label', label);
+  return meter;
+}
+function progressPercent({total, count}) {
+  return total ? Math.round(count / total * 100) : 0;
+}
+function coursePicker(d) {
   const picker = el('select');
   picker.setAttribute('aria-label', 'Día del curso');
   for (const module of state.modules) {
@@ -318,64 +355,97 @@ function renderCheck() {
   }
   picker.value = d.id;
   picker.onchange = () => select(Number(picker.value));
+  return picker;
+}
+function renderCheck() {
+  const d = lesson(selected);
+  if (!d) return;
   const progress = completed(d);
-  const sessions = state.sessions.filter(row => row.lesson === d.id);
-  const intro = box('article', 'card', el('small', state.track), el('p', fullName(d), 'eyebrow'),
-    el('h2', d.title), el('p', d.summary, 'copy'),
-    el('p', sessions.length ? 'Fecha programada para Ritchie: ' + dateLabel(sessions[0].date, true) : 'Fecha programada para Ritchie: sin programación verificada.'),
-    el('small', d.consulted ? 'Ficha consultada el ' + dateLabel(d.consulted, true) : 'Ficha de Moodle pendiente de verificar.'),
-    el('small', d.technology || 'Tecnología pendiente de verificar.'),
-    link('Ver la ficha en Moodle ↗', d.url));
-  if (progress.total) {
-    const bar = el('progress');
-    bar.max = progress.total;
-    bar.value = progress.count;
-    bar.setAttribute('aria-label', 'Avance del día');
-    const ids = d.quests.flatMap((q, i) => q[2].map((_, j) => i + '-' + j));
-    intro.append(bar, el('small', progress.count + ' de ' + progress.total + ' pasos'), checkbox('Día completado',
-      progress.done, progress.count > 0 && !progress.done, value => setTicks(d.id, ids, value, true)));
-    const days = state.lessons.filter(day => day.module === d.module && day.week === d.week);
-    const marked = days.some(day => completed(day).count > 0);
-    const reopen = button('Desmarcar semana ' + d.week, () => {
+  const cursor = state.resume;
+  const scheduled = state.sessions.find(row => row.lesson === d.id);
+  const title = progress.done ? 'Completaste tu ruta de hoy.' : progress.count ? '¡Vamos por ese siguiente paso!' : 'Tu primer paso empieza aquí.';
+  const heading = box('div', 'row between page-heading', box('div', '',
+    el('p', 'Mi aprendizaje', 'eyebrow'), el('h1', title),
+    el('p', [fullName(d), scheduled && dateLabel(scheduled.date, true)].filter(Boolean).join(' / '), 'page-description')),
+    button('Ver calendario ↗', () => show('calendar'), 'white-button'));
+  const hero = box('article', 'card hero dashboard-hero',
+    box('div', '', el('h2', d.title), el('p', d.technology || moduleName(d.module)),
+      box('div', 'row', el('span', d.quests.length + ' actividades', 'pill'), el('span', progress.total + ' pasos', 'pill'))),
+    box('div', 'dashboard-progress', el('strong', progressPercent(progress) + '%'),
+      el('small', progress.count + ' de ' + progress.total + ' pasos completados'), progressBar(progress, 'Avance del día')));
+  const allSteps = d.quests.flatMap((q, i) => q[2].map((_, j) => i + '-' + j));
+  const firstPending = allSteps.find(key => !progress.marked.has(key));
+  const step = selectedSteps.get(d.id) || (cursor?.id === d.id && cursor.step) || firstPending || allSteps[0];
+  const [activity, stepIndex] = (step || '').split('-').map(Number);
+  const guide = (mode = '') => {
+    focus = { id: d.id, step };
+    show('chat', mode);
+  };
+  const controls = box('div', 'route-controls', coursePicker(d));
+  if (cursor && cursor.id !== d.id) controls.append(button('Retomar mi avance', () => select(cursor.id, cursor.step), 'secondary'));
+  const days = state.lessons.filter(day => day.module === d.module && day.week === d.week);
+  if (days.some(day => completed(day).count > 0)) {
+    controls.append(button('Desmarcar semana ' + d.week, () => {
       update('/api/week/reopen', { id: d.id }, next => {
         selected = next.selected;
         opened.delete(selected);
       }, 'Semana desmarcada. Retomarás desde su primer día con pasos.');
-    }, 'secondary');
-    reopen.disabled = !marked;
-    intro.append(reopen);
-  } else intro.append(el('p', 'Pendiente de cargar las instrucciones de este día.', 'eyebrow'));
-  $('check').replaceChildren(resume, scheduled, box('label', '', 'Día del curso', picker), intro);
-  if (d.quests.length) $('check').append(el('h3', 'Tus MiniRetos de hoy'));
-  d.quests.forEach(([title, context, steps, meta], i) => {
+    }, 'secondary'));
+  }
+  const routeTitle = box('div', 'row between route-title', el('h2', 'Tu ruta de hoy'),
+    el('span', progress.count ? '✓ Avance guardado' : 'Aún no has comenzado', 'pill success-pill'));
+  const route = box('div', 'card activity-list');
+  const openActivities = opened.get(d.id) || new Set();
+  if (!d.quests.length) route.append(el('p', 'Pendiente de cargar las instrucciones de este día.'));
+  d.quests.forEach(([questTitle, context, steps, meta], i) => {
     const ids = steps.map((_, j) => i + '-' + j);
     const count = ids.filter(key => progress.marked.has(key)).length;
-    const card = details(`MiniReto ${i + 1} · ${title} · ${count}/${ids.length}`, el('p', context, 'copy'),
-      el('p', 'Entregable · ' + (meta?.deliverable || 'Pendiente de verificar en Moodle.'), 'copy quest-meta'),
-      checkbox('MiniReto completado', count === ids.length, count > 0 && count < ids.length, value => setTicks(d.id, ids, value)),
-      el('h4', 'Pasos del MiniReto ' + (i + 1)));
-    if (meta) card.append(details('Requisitos y criterios', el('p', meta.requirements, 'copy'), el('p', meta.criteria, 'copy')));
-    const saved = opened.get(d.id) || new Set(cursor?.id === d.id && cursor.step ? [Number(cursor.step.split('-')[0])] : []);
-    card.open = saved.has(i);
+    const label = box('summary', 'activity-heading', el('span', String(i + 1).padStart(2, '0'), 'pill'),
+      el('strong', questTitle), el('small', count + ' de ' + ids.length + ' pasos'), el('span', '⌄', 'disclosure-mark'));
+    const card = box('details', 'activity', label);
+    card.open = openActivities.has(i) || (!opened.has(d.id) && i === activity);
     card.ontoggle = () => {
-      if (card.open) saved.add(i);
-      else saved.delete(i);
-      opened.set(d.id, saved);
+      if (!card.isConnected) return;
+      if (card.open) openActivities.add(i);
+      else openActivities.delete(i);
+      opened.set(d.id, openActivities);
     };
     steps.forEach((task, j) => {
       const key = ids[j];
-      const current = cursor?.id === d.id && cursor.step === key;
-      const label = `Paso ${j + 1} · ${task}`;
-      const ask = button('Pedir guía', () => {
-        focus = { id: d.id, step: key };
-        show('chat');
-      }, 'secondary');
-      ask.setAttribute('aria-label', 'Pedir guía del MiniReto ' + (i + 1) + ', Paso ' + (j + 1));
-      card.append(box('div', current ? 'step current' : 'step',
-        checkbox(label + (current ? ' (En curso)' : ''), progress.marked.has(key), false, value => setTicks(d.id, [key], value)), ask));
+      const check = checkbox(task, progress.marked.has(key), false, value => setTicks(d.id, [key], value));
+      check.lastElementChild.classList.add('sr-only');
+      const selectStep = button(task, () => {
+        selectedSteps.set(d.id, key);
+        openActivities.add(i);
+        opened.set(d.id, openActivities);
+        renderCheck();
+        if (mobileMenu.matches) $('step-detail').scrollIntoView({ block: 'nearest' });
+        $('step-detail').querySelector('h2').focus({preventScroll: true});
+      }, 'step-select');
+      if (step === key) selectStep.setAttribute('aria-current', 'step');
+      card.append(box('div', step === key ? 'step current' : 'step', check,
+        box('div', '', selectStep, el('small', 'Paso ' + (j + 1) + (progress.marked.has(key) ? ' · Completado' : '')))));
     });
-    $('check').append(card);
+    if (meta) card.append(details('Contexto, requisitos y entrega', el('p', context, 'copy'), el('p', meta.requirements, 'copy'),
+      el('p', meta.criteria, 'copy'), el('p', meta.deliverable, 'copy')));
+    card.append(checkbox('Completar toda la actividad', count === ids.length, count > 0 && count < ids.length,
+      value => setTicks(d.id, ids, value)));
+    route.append(card);
   });
+  if (allSteps.length) route.append(checkbox('Marcar día completo', progress.done, progress.count > 0 && !progress.done,
+    value => setTicks(d.id, allSteps, value, true)));
+  const quest = d.quests[activity];
+  const detailTitle = el('h2', quest?.[2][stepIndex] || d.title);
+  detailTitle.tabIndex = -1;
+  const detail = box('aside', 'card step-detail', el('span', progress.count ? 'Estás aquí' : 'Empieza aquí', 'pill'),
+    detailTitle, el('p', quest?.[1] || d.summary, 'copy muted'));
+  detail.id = 'step-detail';
+  if (quest) detail.append(el('p', 'Apoyo para este paso', 'eyebrow'),
+    box('div', 'step-actions', button('Pedir guía →', () => guide('basic')),
+      button('Ver o generar guía de IA ↗', () => guide('saved'), 'secondary'),
+      button('Pedir más explicación', () => guide('explain'), 'text-button')));
+  detail.append(link('Ver ficha en Moodle ↗', d.url));
+  $('check').replaceChildren(heading, hero, routeTitle, box('div', 'dashboard-grid', route, detail), controls);
   if (state.canEdit) $('check').append(lessonForm(d), details('Añadir otro día del curso', lessonForm()));
 }
 function sessionContent(s, compact = false) {
@@ -420,18 +490,61 @@ function sessionForm(session, date) {
   return details(session ? 'Editar fecha o vincular checklist' : 'Agregar fecha', form);
 }
 function renderCalendar() {
-  const heading = box('div', 'row between', el('h2', 'Calendario Ritchie'),
-    box('div', 'row', button('Anterior', () => { week = offset(week, -7); renderCalendar(); }, 'secondary'),
-      button('Semana actual', () => { week = monday(state.today); renderCalendar(); }, 'secondary'),
-      button('Siguiente', () => { week = offset(week, 7); renderCalendar(); }, 'secondary')));
-  const output = el('div', null, 'calendar-days');
-  for (let i = 0; i < 7; i++) {
-    const date = offset(week, i);
-    const sessions = state.sessions.filter(row => row.date === date);
-    output.append(box('article', 'card', el('h3', dateLabel(date, true)),
-      ...(sessions.length ? sessions.map(s => sessionContent(s)) : [el('p', 'Sin programación verificada')]),
-      ...(state.canEdit ? [sessionForm(null, date)] : [])));
+  const monthTitle = new Intl.DateTimeFormat('es-CO', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+    .format(new Date(calendarDate + 'T12:00:00Z'));
+  const first = calendarDate.slice(0, 7) + '-01';
+  const month = new Date(first + 'T12:00:00Z');
+  const shiftMonth = offsetMonths => {
+    month.setUTCMonth(month.getUTCMonth() + offsetMonths);
+    calendarDate = month.toISOString().slice(0, 10);
+    renderCalendar();
+  };
+  const previous = button('‹', () => shiftMonth(-1), 'text-button');
+  previous.setAttribute('aria-label', 'Mes anterior');
+  const next = button('›', () => shiftMonth(1), 'text-button');
+  next.setAttribute('aria-label', 'Mes siguiente');
+  const header = box('div', 'row between page-heading',
+    box('div', '', el('h1', 'Haz espacio para aprender.'), el('p', 'Calendario del clan · ' + monthTitle, 'page-description')));
+  if (state.canEdit) {
+    const create = sessionForm(null, calendarDate);
+    create.classList.add('calendar-create');
+    header.append(box('div', 'row', el('span', 'Cuenta titular', 'pill'), create));
   }
+  const days = box('div', 'month-grid', ...['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(day => el('span', day, 'month-weekday')));
+  const beginning = monday(first);
+  const dateIndex = new Map();
+  for (const session of state.sessions) {
+    if (!dateIndex.has(session.date)) dateIndex.set(session.date, []);
+    dateIndex.get(session.date).push(session);
+  }
+  for (let i = 0; i < 42; i++) {
+    const date = offset(beginning, i);
+    if (i >= 28 && i % 7 === 0 && date.slice(0, 7) > first.slice(0, 7)) break;
+    if (!date.startsWith(first.slice(0, 7))) {
+      days.append(el('span'));
+      continue;
+    }
+    const day = button(String(Number(date.slice(8))), () => {
+      calendarDate = date;
+      renderCalendar();
+      $('agenda-day').focus({preventScroll:true});
+    }, 'calendar-day');
+    day.setAttribute('aria-label', dateLabel(date, true));
+    if (date === calendarDate) day.setAttribute('aria-current', 'date');
+    day.append(...(dateIndex.get(date) || []).map(session => el('span', session.label || lesson(session.lesson)?.title || 'Actividad', 'calendar-event')));
+    days.append(day);
+  }
+  const schedule = box('article', 'card month-card', box('div', 'row between',
+    el('h2', monthTitle, 'month-title'), box('div', 'row', previous,
+      button('Hoy', () => { calendarDate = state.today; renderCalendar(); }, 'text-button'), next)), days);
+  const agendaTitle = el('h2', calendarDate === state.today ? 'Tu agenda de hoy' : 'Agenda del día');
+  agendaTitle.id = 'agenda-day';
+  agendaTitle.tabIndex = -1;
+  const sessions = dateIndex.get(calendarDate) || [];
+  const future = state.sessions.filter(session => session.date > calendarDate).slice(0, 3);
+  const agenda = box('aside', 'card agenda-card', el('span', dateLabel(calendarDate), 'pill'), agendaTitle,
+    ...(sessions.length ? sessions.map(s => sessionContent(s)) : [el('p', 'Sin programación verificada.', 'muted')]),
+    ...(future.length ? [el('h3', 'Próximamente'), ...future.map(s => el('p', dateLabel(s.date) + ' · ' + (s.label || lesson(s.lesson)?.title || 'Actividad'), 'muted'))] : []));
   let official = $('calendar').querySelector('#official-agenda');
   if (!official) {
     const frame = el('iframe', null, 'agenda-frame');
@@ -443,8 +556,8 @@ function renderCalendar() {
     official.id = 'official-agenda';
     official.ontoggle = () => { if (official.open && !frame.hasAttribute('src')) frame.src = state.links.agenda; };
   }
-  $('calendar').replaceChildren(heading, official, el('p', dateLabel(week) + ' – ' + dateLabel(offset(week, 6)) + ' · Hora de Colombia'),
-    box('div', 'row', link('Área personal de Moodle ↗', state.links.calendar), link('Mis cursos ↗', state.links.courses)), output);
+  $('calendar').replaceChildren(header, el('p', state.canEdit ? 'Puedes editar este calendario. Los estudiantes lo consultan en modo de solo lectura.' : 'Calendario compartido · Hora de Colombia', 'provider-privacy'),
+    box('div', 'calendar-layout', schedule, agenda), official);
 }
 function noticeDay(day, cursor) {
   const card = box('div', '', el('h4', fullName(day) + ' · ' + day.title), el('p', day.summary));
@@ -458,10 +571,6 @@ function noticeDay(day, cursor) {
   return card;
 }
 function renderInbox() {
-  const paused = state.notificationsPaused;
-  const preferences = box('div', 'card', el('p', paused ? 'Los avisos diarios están pausados.' : 'Los avisos diarios están activos.'),
-    button(paused ? 'Reanudar avisos' : 'Pausar avisos', () =>
-      update('/api/notifications', { paused: !paused }, undefined, paused ? 'Avisos reanudados.' : 'Avisos pausados.'), 'secondary'));
   const records = state.notices.map(notice => {
     const card = box('article', 'card', el('h3', dateLabel(notice.date, true)), el('small', notice.track),
       el('h4', 'Programado para el clan'));
@@ -481,16 +590,51 @@ function renderInbox() {
     const pendingInfo = notice.source.status === 'expired' ? 'Sesión de Moodle vencida. ' : notice.source.status === 'unavailable' ? 'Consulta de Moodle sin acceso. ' : '';
     card.append(el('small', pendingInfo + 'Última consulta de contenido: ' + dateLabel(notice.source.consulted, true)
       + '. Quedan pendientes las fichas o las vinculaciones que falten.'));
+    card.toggleAttribute('data-unread', notice.date > readThroughDate);
     return card;
   });
   for (const entry of state.legacyNotices) {
     const day = lesson(entry.lesson);
-    if (day) records.push(box('article', 'card', el('h3', dateLabel(entry.date, true)), el('small', 'Aviso de la Beta'), noticeDay(day)));
+    if (day) {
+      const card = box('article', 'card', el('h3', dateLabel(entry.date, true)), el('small', 'Aviso de la Beta'), noticeDay(day));
+      card.toggleAttribute('data-unread', entry.date > readThroughDate);
+      records.push(card);
+    }
   }
-  $('inbox').replaceChildren(el('h2', 'Avisos'), preferences,
-    ...(records.length ? records : [el('p', paused ? 'Puedes reanudar los avisos cuando quieras.' : 'Los avisos se guardan diariamente a partir de las 5:00 a. m., hora de Colombia.')]));
+  const unread = records.some(card => card.hasAttribute('data-unread'));
+  $('inbox-toggle').toggleAttribute('data-unread', unread);
+  const close = button('Cerrar', () => { setInbox(false); $('inbox-toggle').focus(); }, 'text-button');
+  $('inbox').replaceChildren(box('div', 'row between', el('h2', 'Buzón de notificaciones'), close),
+    ...(records.length ? records : [el('p', 'Los avisos se guardan diariamente a partir de las 5:00 a. m., hora de Colombia.')]));
+  if (unread) $('inbox').append(button('Marcar todo como leído', () => {
+    readThroughDate = [...state.notices, ...state.legacyNotices].map(notice => notice.date).sort().at(-1);
+    renderInbox();
+    $('inbox').querySelector('button').focus();
+  }, 'text-button inbox-read'));
 }
 const searchText = value => value.trim().toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+function renderCards() {
+  const module = $('cards-module');
+  const currentModule = module.value;
+  module.replaceChildren(new Option('Todos los módulos', ''), ...state.modules.map(item => new Option(item.name, item.id)));
+  module.value = currentModule;
+  $('cards-role').textContent = state.canEdit ? 'Cuenta titular' : 'Estudiante · Solo lectura';
+  const query = searchText($('cards-search').value);
+  const cards = state.lessons.filter(day => day.quests.length && (!module.value || module.value === day.module)
+    && searchText([fullName(day), day.title, day.summary, day.technology, ...day.quests.map(quest => quest[0])].join(' ')).includes(query));
+  $('cards-list').replaceChildren(...cards.map(day => box('article', 'card resource-card',
+    el('span', String(day.day).padStart(2, '0'), 'resource-number'), el('h2', day.title),
+    el('p', fullName(day), 'eyebrow'), el('p', day.summary, 'muted'),
+    box('div', 'row', link('Abrir ficha en Moodle ↗', day.url, 'button secondary'),
+      button(state.canEdit ? 'Ver y editar checklist' : 'Ver checklist', () => select(day.id), 'text-button')))));
+  if (!cards.length) $('cards-list').append(el('p', 'No hay fichas que coincidan con los filtros.', 'muted'));
+}
+$('cards-search').oninput = $('cards-module').onchange = () => state && renderCards();
+$('cards-clear').onclick = () => {
+  $('cards-search').value = $('cards-module').value = '';
+  if (state) renderCards();
+};
+let focusedHistoryDay;
 const historyDrafts = new Map();
 const openNotes = new Set();
 function historyNote(day, saved) {
@@ -543,40 +687,61 @@ function renderHistory() {
     const note = state.historyNotes?.[day.id] || '';
     return { day, progress, previous, note, label: previous && !progress.done ? 'Reabierto' : stateLabel(day) };
   });
-  const done = records.filter(row => row.progress.done).length;
-  const summary = [
-    ['Días completados', done + ' / ' + records.length],
-    ['En curso o reabiertos', records.filter(({ label }) => label === 'En curso' || label === 'Reabierto').length],
-    ['Notas personales', records.filter(row => row.note).length],
-  ];
-  $('history-summary').replaceChildren(...summary.map(([label, value]) =>
-    box('div', 'card', el('strong', value), el('small', label))));
   const visible = records.filter(({ day, note, label }) =>
     (!currentModule || day.module === currentModule) && (!filterStatus || label === filterStatus)
     && searchText(fullName(day) + ' ' + day.title + ' ' + note).includes(query));
   visible.sort((a, b) => (b.previous?.completed || '').localeCompare(a.previous?.completed || ''));
+  const totals = visible.reduce((result, { progress }) => ({
+    count: result.count + progress.count, total: result.total + progress.total,
+  }), { count: 0, total: 0 });
+  const summary = [
+    ['Días encontrados', visible.length],
+    ['Pasos completados', totals.count],
+    ['Avance de los días filtrados', progressPercent(totals) + '%'],
+  ];
+  $('history-summary').replaceChildren(...summary.map(([label, value]) =>
+    box('div', 'card', el('strong', value), el('small', label))));
   $('history-count').textContent = visible.length + ' de ' + records.length + ' días';
+  const detail = visible.find(row => row.day.id === focusedHistoryDay) || visible[0];
+  focusedHistoryDay = detail?.day.id;
   const dateFormat = new Intl.DateTimeFormat('es-CO', { timeZone: state.zone, dateStyle: 'long' });
-  $('history-records').replaceChildren(...visible.map(({ day, progress, previous, note, label }) => {
-    const meter = el('progress');
-    meter.max = progress.total || 1;
-    meter.value = progress.count;
-    meter.setAttribute('aria-label', 'Avance de ' + fullName(day));
-    const completionDate = previous?.completed
-      ? 'Primera finalización el ' + dateFormat.format(new Date(previous.completed))
-      : 'Primera finalización sin fecha registrada';
+  $('history-records').replaceChildren(el('h2', 'Días de estudio filtrados'), ...visible.map(({ day, progress, previous, label }) => {
+    const selectRecord = button(day.title, () => {
+      focusedHistoryDay = day.id;
+      renderHistory();
+      $('history-detail-title').focus({ preventScroll: !mobileMenu.matches });
+    });
+    if (day.id === focusedHistoryDay) selectRecord.setAttribute('aria-current', 'true');
     return box('article', 'card history-record',
       box('div', 'row between', el('small', fullName(day)), el('strong', label, 'history-state')),
-      el('h3', day.title),
-      ...(progress.total ? [meter, el('small', progress.count + ' de ' + progress.total + ' pasos')] : []),
-      ...(previous ? [el('small', completionDate)] : []),
-      ...(note ? [el('p', note, 'history-note-text')] : []),
-      box('div', 'row history-actions', openDay(day.id)), historyNote(day, note));
+      box('h3', '', selectRecord),
+      ...(progress.total ? [progressBar(progress, 'Avance de ' + fullName(day)), el('small', progress.count + ' de ' + progress.total + ' pasos')] : []),
+      ...(previous ? [el('small', previous.completed
+        ? 'Primera finalización el ' + dateFormat.format(new Date(previous.completed))
+        : 'Primera finalización sin fecha registrada')] : []));
   }));
-  if (!visible.length) $('history-records').append(el('p', 'No hay días que coincidan con los filtros.'));
+  $('history-detail').hidden = !detail;
+  if (!detail) {
+    $('history-records').append(el('p', 'No hay días que coincidan con los filtros.'));
+    return;
+  }
+  const title = el('h2', 'Nota privada del día');
+  title.id = 'history-detail-title';
+  title.tabIndex = -1;
+  const editor = historyNote(detail.day, detail.note);
+  editor.open = !detail.note || openNotes.has(detail.day.id);
+  $('history-detail').replaceChildren(el('span', 'Solo para ti', 'pill'), title, el('p', detail.day.title, 'muted'),
+    ...(detail.note ? [el('p', detail.note, 'history-note-text')] : []), editor,
+    box('div', 'row history-actions', openDay(detail.day.id),
+      ...(detail.note ? [button('Eliminar nota', () => update('/api/history/note', { id: detail.day.id, note: '' },
+        () => historyDrafts.delete(detail.day.id), 'Nota eliminada.'), 'text-button')] : [])));
 }
 $('history-search').oninput = () => state && renderHistory();
 $('history-module').onchange = $('history-status').onchange = () => state && renderHistory();
+$('history-clear').onclick = () => {
+  $('history-search').value = $('history-module').value = $('history-status').value = '';
+  if (state) renderHistory();
+};
 function renderMessages(history) {
   const list = $('messages');
   const keep = threadHistory.length <= history.length && threadHistory.every((row, index) =>
@@ -624,6 +789,48 @@ const modelOptions = {
     'Escribe el ID y el puerto que indica el agente, pulsa Conectar y envía una pregunta nueva.',
   ]],
 };
+const providerLabels = {
+  groq: 'Groq', openai: 'OpenAI API', claude: 'Claude', gemini: 'Gemini',
+  'google-cloud': 'Google Cloud', ollama: 'Ollama', agent: 'Agente local',
+};
+function setConnectionView(open) {
+  $('chat-heading').hidden = $('chat-layout').hidden = open;
+  $('chat-connection').hidden = !open;
+  if (open) $('back-to-chat').focus();
+}
+function setChatListView(open) {
+  $('chat-layout').classList.toggle('chat-list-view', open);
+}
+$('show-connection').onclick = () => setConnectionView(true);
+$('back-to-chat').onclick = $('close-connection').onclick = () => {
+  setConnectionView(false);
+  $('show-connection').focus();
+};
+$('show-chat-list').onclick = () => {
+  setChatListView(true);
+  $('start-chat').focus();
+};
+$('start-chat').onclick = () => {
+  const open = $('new-chat-form').hidden;
+  $('new-chat-form').hidden = !open;
+  $('start-chat').setAttribute('aria-expanded', String(open));
+  if (open) $('new-chat-title').focus();
+};
+$('show-credential').onclick = () => {
+  const visible = $('credential').type === 'password';
+  $('credential').type = visible ? 'text' : 'password';
+  $('show-credential').textContent = visible ? 'Ocultar' : 'Mostrar';
+  $('show-credential').setAttribute('aria-pressed', String(visible));
+};
+$('provider-menu').replaceChildren(...Object.entries(providerLabels).map(([key, label]) => {
+  const item = button(label, () => {
+    if ($('connect-model').disabled) return;
+    $('provider').value = key;
+    updateConnectionForm();
+  });
+  item.dataset.provider = key;
+  return item;
+}));
 const localProvider = provider => provider === 'ollama' || provider === 'agent';
 let connectionStatusTimer;
 function connectionStatus(message, error = false) {
@@ -635,6 +842,13 @@ function connectionStatus(message, error = false) {
 function updateConnectionForm() {
   const provider = $('provider').value;
   const [model, steps] = modelOptions[provider];
+  $('provider-heading').textContent = providerLabels[provider];
+  Array.from($('provider-menu').children).forEach(item => {
+    item.setAttribute('aria-pressed', String(item.dataset.provider === provider));
+  });
+  $('credential').type = 'password';
+  $('show-credential').textContent = 'Mostrar';
+  $('show-credential').setAttribute('aria-pressed', 'false');
   const local = localProvider(provider);
   $('model').placeholder = model || 'Nombre exacto del modelo';
   $('provider-steps').replaceChildren(...steps.map(step => {
@@ -652,12 +866,16 @@ function updateConnectionForm() {
   $('usage-field').hidden = local;
   $('usage-consent').required = !local;
   $('usage-consent').checked = false;
-  $('connect-model').textContent = provider === 'google-cloud' ? 'Continuar con Google' : 'Conectar';
+  $('connect-model').textContent = provider === 'google-cloud' ? 'Continuar con Google →' : 'Comprobar conexión →';
 }
 function chatControls() {
   const ready = Boolean(connection || state?.chatReady);
   $('send').disabled = !ready || threadRevision === undefined || chatPending;
   $('cancel-chat').hidden = !ollamaRequest;
+  $('chat-wait').hidden = !chatPending || deletingChat;
+  $('show-connection').toggleAttribute('data-connected', ready);
+  $('show-connection').textContent = connection ? '●  ' + providerLabels[connection.provider] + ' · ' + connection.model
+    : ready ? '●  Ollama del servidor' : 'Conectar un modelo';
   $('delete-chat').hidden = !threadHistory.length && !focus?.chat;
   $('delete-chat').disabled = chatPending;
   $('disconnect-model').hidden = !connection && !googlePending;
@@ -666,8 +884,9 @@ function chatControls() {
 }
 function connect(modelConnection) {
   connection = modelConnection;
-  $('chat-connection').open = false;
-  connectionStatus('Seleccionado para este chat · ' + modelConnection.model + '.');
+  setConnectionView(false);
+  $('show-connection').focus();
+  status('Modelo conectado · ' + modelConnection.model + '.');
   chatControls();
 }
 
@@ -819,7 +1038,7 @@ function renderChatList() {
     const context = day ? (chat.step ? cursorLabel(chat, day) : fullName(day)) : '';
     const title = chat.title || (chat.step ? 'Guía de ' + day?.title : day?.title) || 'Conversación';
     if (!searchText([title, context, day?.title].join(' ')).includes(query)) return [];
-    const open = button(title, () => openChat(chat), 'secondary');
+    const open = button(title, () => void openChat(chat), 'secondary');
     if (sameChat(focus, chat)) open.setAttribute('aria-current', 'true');
     const field = el('input');
     field.value = title;
@@ -849,6 +1068,8 @@ function renderChatList() {
   });
   $('chat-list').replaceChildren(...(rows.length ? rows : [el('li',
     query ? 'No hay conversaciones que coincidan con la búsqueda.' : 'Todavía no hay conversaciones guardadas.')]));
+  if (!query && !rows.length && mobileMenu.matches) $('chat-list').append(box('li', 'chat-list-item',
+    box('div', '', button('Abrir chat del día', () => void openChat({ id: selected, step: '' })))));
 }
 $('chat-search').oninput = () => state && renderChatList();
 async function refreshChats() {
@@ -871,6 +1092,8 @@ $('new-chat-form').onsubmit = async event => {
   try {
     const chat = await api('/api/chat/new', { id, step, title: $('new-chat-title').value });
     form.reset();
+    form.hidden = true;
+    $('start-chat').setAttribute('aria-expanded', 'false');
     await openChat(chat);
     status('Conversación creada.');
   } catch (error) {
@@ -879,9 +1102,10 @@ $('new-chat-form').onsubmit = async event => {
     submit.disabled = false;
   }
 };
-async function openChat(selection, guide) {
+async function openChat(selection, guide, reveal = true) {
   const day = lesson(selection?.id);
   if (!day) return;
+  if (reveal) setChatListView(false);
   const stamp = ++chatLoad;
   focus = selection;
   void refreshChats();
@@ -890,7 +1114,7 @@ async function openChat(selection, guide) {
   if (!sameChat(selection, lastChat || {})) $('question').value = '';
   lastChat = selection;
   $('chat-title').textContent = selection.title || (quest ? 'Guía paso a paso' : 'Chat Riwi');
-  $('chat-context').replaceChildren(box('article', 'card', el('small', state.track),
+  const context = details(quest ? cursorLabel(focus, day) : fullName(day), el('small', state.track),
     el('h3', quest ? cursorLabel(focus, day) : fullName(day)), el('p', quest ? quest[1] : day.summary),
     el('p', quest ? quest[2][j] : day.title), el('small', day.technology || 'Tecnología pendiente de verificar.'),
     ...(quest ? [button('Ver o generar guía de IA', () => sendChat({ ...selection, guide: true }), 'secondary'),
@@ -898,7 +1122,10 @@ async function openChat(selection, guide) {
     box('div', 'row', openDay(day.id, focus.step),
       button('Chat general del día', () => openChat({ id: day.id, step: '' }, false), 'secondary'),
       ...(selected !== day.id ? [button('Chat del checklist seleccionado', () => openChat({ id: selected, step: '' }, false), 'secondary')] : [])),
-    el('small', 'Puedes usar la guía del tablero o conectar un modelo para generar guías y conversar aquí.')));
+    el('small', 'Puedes usar la guía del tablero o conectar un modelo para generar guías y conversar aquí.'));
+  context.classList.add('chat-context-details');
+  context.open = Boolean(quest);
+  $('chat-context').replaceChildren(context);
   threadHistory = [];
   threadRevision = undefined;
   $('messages').replaceChildren(el('p', 'Cargando conversación…'));
@@ -909,7 +1136,13 @@ async function openChat(selection, guide) {
     if (result.title) $('chat-title').textContent = selection.title = result.title;
     threadRevision = result.revision ?? 0;
     renderMessages(result.history);
-    if (quest && !selection.chat && (guide || !result.history.length)) await sendChat({ ...selection, guide: true, basic: true }, false);
+    if (quest && !selection.chat) {
+      if (guide === 'saved') await sendChat({ ...selection, guide: true });
+      else if (guide === 'explain') {
+        if (!connection && !state.chatReady) setConnectionView(true);
+        else await sendChat({ ...selection, message: 'Explícame este paso con más detalle y otro ejemplo.' });
+      } else if (guide || !result.history.length) await sendChat({ ...selection, guide: true, basic: true }, false);
+    }
   } catch (error) {
     if (stamp === chatLoad && selection.chat && error.status === 404) return openChat({ id: day.id, step: selection.step });
     if (stamp === chatLoad) status(error.message, true);
@@ -924,7 +1157,6 @@ async function sendChat(data, useConnection = true) {
   const controller = active?.provider === 'ollama' || (!active && state.chatReady && !data.basic) ? new AbortController() : undefined;
   ollamaRequest = controller;
   chatControls();
-  status('Preparando respuesta…');
   try {
     if (data.guide && useConnection) {
       const saved = await api('/api/chat', { ...data, lookup: true }, controller?.signal);
@@ -934,7 +1166,7 @@ async function sendChat(data, useConnection = true) {
         return;
       }
       if (!active && !state.chatReady) {
-        $('chat-connection').open = true;
+        if (sameChat(focus, data)) setConnectionView(true);
         throw new Error('Conecta un modelo para generar la primera guía de IA.');
       }
     }
@@ -961,8 +1193,16 @@ async function sendChat(data, useConnection = true) {
   }
 }
 $('cancel-chat').onclick = () => ollamaRequest?.abort();
-$('delete-chat').onclick = async () => {
-  if (chatPending || (!threadHistory.length && !focus?.chat) || !window.confirm('¿Eliminar esta conversación y sus guías guardadas?')) return;
+let deletingChat = false;
+const deleteDialog = $('delete-chat-dialog');
+$('delete-chat').onclick = () => {
+  if (chatPending || (!threadHistory.length && !focus?.chat)) return;
+  deleteDialog.returnValue = '';
+  deleteDialog.showModal();
+};
+deleteDialog.onclose = async () => {
+  if (deleteDialog.returnValue !== 'delete' || chatPending) return;
+  deletingChat = true;
   const selection = focus;
   chatPending = true;
   chatControls();
@@ -981,6 +1221,7 @@ $('delete-chat').onclick = async () => {
   } catch (error) {
     status(error.message, true);
   } finally {
+    deletingChat = false;
     chatPending = false;
     chatControls();
   }
@@ -1022,9 +1263,12 @@ function render() {
     meter.setAttribute('aria-label', 'Avance del día');
     meter.max = progress.total;
     meter.value = progress.count;
-    sidebar.replaceChildren(el('strong', 'Avance del día'), meter, el('small', `${progress.count} de ${progress.total} pasos`));
+    sidebar.replaceChildren(el('strong', 'Avance del día'), el('span', progressPercent(progress) + '%', 'progress-number'), meter, el('small', `${progress.count} de ${progress.total} pasos`));
   }
+  $('account-title').textContent = state.canEdit ? 'Cuenta titular' : 'Mi cuenta';
+  $('sidebar-role').textContent = state.canEdit ? 'Cuenta titular · Medellín' : 'Estudiante · Medellín';
   renderSources();
+  renderCards();
   renderCheck();
   renderCalendar();
   renderInbox();
@@ -1038,21 +1282,23 @@ async function refresh(initial) {
     state = next;
     if (!selected) selected = state.resume?.id ?? state.lessons.at(-1)?.id;
     if (initial) {
-      week = monday(state.today);
+      calendarDate = state.today;
       focus = state.chatFocus;
       show('check');
     }
-    if (initial || activeTab === 'inbox') render();
+    if (initial) render();
+    else if (!$('inbox').hidden) renderInbox();
     if (initial) status('');
   } catch (error) {
     if (initial) {
       status(error.message, true);
+      $('sources').hidden = false;
       $('sources').replaceChildren(button('Volver a cargar', () => refresh(true), 'secondary'));
     }
   }
 }
 refresh(true);
 setInterval(() => {
-  if (state && activeTab === 'inbox' && !document.hidden) refresh(false);
+  if (state && !$('inbox').hidden && !document.hidden) refresh(false);
 }, 30000);
 

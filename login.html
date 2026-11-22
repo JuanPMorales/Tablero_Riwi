@@ -3,26 +3,56 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Ingresar · Mi tablero Riwi</title>
+  <title>Ingresar · Tablero Riwi</title>
   <link rel="stylesheet" href="/ui.css">
   <script defer src="/login.js"></script>
 </head>
-<body>
+<body class="auth-body">
   <main class="login-page">
-    <div class="brand"><span class="brand-mark" aria-hidden="true">R</span><div><h1>Mi tablero Riwi</h1><small>Desarrollo de Software · Clan Ritchie</small></div></div>
-    <section class="card">
-      <h2 id="login-heading">Iniciar sesión</h2>
-      <form id="account-form" method="post">
-        <label for="document">Cédula</label>
-        <input id="document" name="document" inputmode="numeric" autocomplete="username" required pattern="[0-9]{5,12}" maxlength="12">
-        <label for="password">Contraseña</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="128">
-        <p id="password-hint" hidden>Usa al menos 12 caracteres.</p>
-        <button id="submit-account" type="submit">Entrar</button>
-      </form>
-      <p id="login-status" class="status" role="status"></p>
-      <button id="toggle-account" class="secondary" type="button">Crear una cuenta</button>
+    <aside class="auth-identity">
+      <div class="riwi-wordmark">riwi</div>
+      <p class="auth-tag">Aprende a tu ritmo</p>
+      <h1 id="auth-heading">Pequeños pasos.<br>Grandes ideas.</h1>
+      <p class="auth-intro">Tu ruta de estudio, tus avances y un tutor de IA.<br>Todo en un mismo lugar.</p>
+      <section class="auth-chart">
+        <h2>Tu potencial no tiene límites</h2>
+        <p>Con cada paso, estás más cerca.</p>
+        <div class="auth-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      </section>
+      <p class="auth-stages">01&nbsp; Aprende　 02&nbsp; Practica　 03&nbsp; Construye</p>
+      <p class="auth-caption">Hecho para quienes construyen su futuro.</p>
+    </aside>
+    <section class="auth-panel" aria-labelledby="login-heading">
+      <div class="auth-form-shell">
+        <h2 id="login-heading"><span class="auth-desktop-heading">Qué bueno verte de nuevo</span><span class="auth-mobile-heading">Hola de nuevo.</span></h2>
+        <p id="login-caption" class="muted"><span class="auth-desktop-heading">Continúa donde dejaste tu aprendizaje.</span><span class="auth-mobile-heading">Retoma tu camino de aprendizaje.</span></p>
+        <form id="account-form" method="post">
+          <div class="auth-field">
+            <label for="document">Cédula</label>
+            <input id="document" name="document" placeholder="1032456789" inputmode="numeric" autocomplete="username" required pattern="[0-9]{5,12}" maxlength="12" aria-describedby="document-hint">
+            <p id="document-hint" class="field-error" hidden>Escribe solo números, sin puntos.</p>
+          </div>
+          <div class="auth-field">
+            <label for="password">Contraseña</label>
+            <div class="auth-password">
+              <input id="password" name="password" type="password" autocomplete="current-password" placeholder="••••••••••" required maxlength="128" aria-describedby="password-hint">
+              <button id="show-password" type="button" aria-controls="password" aria-pressed="false">Mostrar</button>
+            </div>
+            <p id="password-hint" class="muted" hidden>Usa al menos 12 caracteres.</p>
+          </div>
+          <div id="confirmation-field" class="auth-field" hidden>
+            <label for="confirmation">Confirmar contraseña</label>
+            <input id="confirmation" type="password" autocomplete="new-password" maxlength="128" placeholder="••••••••••" aria-describedby="confirmation-error">
+            <p id="confirmation-error" class="field-error" hidden>Las contraseñas no coinciden.</p>
+          </div>
+          <div id="login-status" class="status" role="status" hidden></div>
+          <button id="submit-account" type="submit">Iniciar sesión&nbsp; →</button>
+        </form>
+        <p class="auth-switch"><span id="toggle-account-label">¿Primera vez por aquí?</span><button id="toggle-account" type="button">Crear cuenta</button></p>
+        <section class="auth-mobile-card"><h3>Tu ritmo. Tu camino.</h3><p>Organiza tus actividades y resuelve tus dudas con Chat Riwi.</p></section>
+      </div>
     </section>
+    <footer class="auth-mobile-footer">Tu aprendizaje, en un solo lugar.</footer>
   </main>
 </body>
 </html>

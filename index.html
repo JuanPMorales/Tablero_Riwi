@@ -11,34 +11,67 @@
   <script defer src="/ui.js"></script>
 </head>
 <body>
-  <header>
-    <div class="brand"><span class="brand-mark" aria-hidden="true">R</span><div><h1>Mi tablero Riwi</h1><small>Desarrollo de Software · Clan Ritchie</small></div></div>
-    <div class="row"><a class="button outline" href="https://moodle.riwi.io/course/view.php?id=137" target="_blank" rel="noopener noreferrer">Moodle Riwi ↗</a><button id="logout" class="outline" type="button">Cerrar sesión</button></div>
-  </header>
   <div class="layout" id="layout">
     <aside class="sidebar">
       <div class="sidebar-inner">
-        <button class="menu-toggle" id="menu-toggle" type="button" aria-controls="sidebar-nav" aria-expanded="true">
-          <span class="menu-icon" aria-hidden="true">☰</span><span id="menu-label">Contraer menú</span>
-        </button>
+        <div class="sidebar-brand">
+          <div class="riwi-wordmark">riwi</div>
+          <p>Tu espacio para crecer</p>
+          <button class="menu-toggle" id="menu-toggle" type="button" aria-controls="sidebar-nav" aria-expanded="true">
+            <span class="menu-chevron" aria-hidden="true">‹</span><span class="menu-mobile-icon" aria-hidden="true"></span><span class="sr-only" id="menu-label">Contraer menú</span>
+          </button>
+        </div>
         <nav id="sidebar-nav" aria-label="Secciones">
-          <button type="button" data-tab="check" title="Hoy / Checklist" aria-current="page"><span class="menu-icon" aria-hidden="true">✓</span><span class="menu-text">Hoy / Checklist</span></button>
-          <button type="button" data-tab="calendar" title="Calendario Ritchie"><span class="menu-icon" aria-hidden="true">▦</span><span class="menu-text">Calendario Ritchie</span></button>
-          <button type="button" data-tab="inbox" title="Avisos"><span class="menu-icon" aria-hidden="true">◉</span><span class="menu-text">Avisos</span></button>
-          <button type="button" data-tab="history" title="Historial"><span class="menu-icon" aria-hidden="true">↺</span><span class="menu-text">Historial</span></button>
-          <button type="button" data-tab="chat" title="Chat Riwi"><span class="menu-icon" aria-hidden="true">⋯</span><span class="menu-text">Chat Riwi</span></button>
+          <button type="button" data-tab="check" aria-current="page"><span class="menu-icon icon-grid" aria-hidden="true"></span><span class="menu-text">Mi tablero</span></button>
+          <button type="button" data-tab="chat"><span class="menu-icon icon-chat" aria-hidden="true"></span><span class="menu-text">Chat Riwi</span></button>
+          <button type="button" data-tab="cards"><span class="menu-icon icon-book" aria-hidden="true"></span><span class="menu-text">Fichas</span></button>
+          <button type="button" data-tab="calendar"><span class="menu-icon icon-calendar" aria-hidden="true"></span><span class="menu-text">Calendario</span></button>
+          <button type="button" data-tab="history"><span class="menu-icon icon-history" aria-hidden="true"></span><span class="menu-text">Historial</span></button>
         </nav>
         <div class="sidebar-progress" id="sidebar-progress" hidden></div>
+        <div class="sidebar-footer">
+          <a href="https://moodle.riwi.io/course/view.php?id=137" target="_blank" rel="noopener noreferrer"><span class="menu-icon icon-help" aria-hidden="true"></span><span class="menu-text">Centro de ayuda</span></a>
+          <p id="sidebar-role">Estudiante · Medellín</p>
+        </div>
       </div>
     </aside>
-    <main>
+    <header class="app-header">
+      <p>Espacio de aprendizaje <span aria-hidden="true">/</span> <span id="breadcrumb">Mi tablero</span></p>
+      <div class="header-actions">
+        <span class="pill">Clan Ritchie</span>
+        <button id="inbox-toggle" class="icon-button" type="button" aria-label="Buzón de notificaciones" aria-controls="inbox" aria-expanded="false"><span class="menu-icon icon-bell" aria-hidden="true"></span></button>
+        <details class="account-menu">
+          <summary id="account-title">Mi cuenta</summary>
+          <button id="logout" class="secondary" type="button">Cerrar sesión</button>
+        </details>
+      </div>
+    </header>
+    <nav class="mobile-nav" aria-label="Accesos principales">
+      <button data-section="check" aria-current="page"><span class="menu-icon icon-grid" aria-hidden="true"></span>Tablero</button>
+      <button data-section="chat"><span class="menu-icon icon-chat" aria-hidden="true"></span>Chat Riwi</button>
+      <button data-section="history"><span class="menu-icon icon-history" aria-hidden="true"></span>Historial</button>
+    </nav>
+    <main class="app-main">
       <p id="status" class="status" role="status">Cargando tu tablero…</p>
       <div id="sources"></div>
-      <section id="check" aria-label="Hoy y checklist" hidden></section>
+      <section id="check" aria-label="Hoy / Checklist" hidden></section>
       <section id="calendar" aria-label="Calendario Ritchie" hidden></section>
-      <section id="inbox" aria-label="Avisos" hidden></section>
+      <section id="inbox" class="inbox-popover" aria-label="Buzón de notificaciones" hidden></section>
+      <section id="cards" aria-labelledby="cards-heading" hidden>
+        <p class="eyebrow">Recursos compartidos</p>
+        <div class="row between page-heading"><h1 id="cards-heading">Tu caja de herramientas.</h1><span id="cards-role" class="pill">Estudiante · Solo lectura</span></div>
+        <p class="page-description">Conceptos claros para seguir construyendo.</p>
+        <div class="card-filters">
+          <input id="cards-search" type="search" aria-label="Buscar fichas" placeholder="Buscar un concepto, tema o recurso…">
+          <select id="cards-module" aria-label="Módulo"><option value="">Todos los módulos</option></select>
+          <button id="cards-clear" type="button" class="secondary">Todas las fichas</button>
+        </div>
+        <div id="cards-list" class="resource-grid"></div>
+      </section>
       <section id="history" aria-label="Historial" hidden>
-        <h2>Historial de estudio</h2>
+        <p class="eyebrow">Tu camino, a un vistazo</p>
+        <h1>Todo lo que ya has construido.</h1>
+        <p class="page-description">Revisa tus avances y encuentra el próximo paso.</p>
         <div id="history-summary" class="history-summary"></div>
         <div class="card history-filters">
           <label>Buscar día<input id="history-search" type="search" placeholder="Tema, semana o día"></label>
@@ -47,29 +80,70 @@
             <option value="">Todos</option><option>Completado</option><option>Reabierto</option>
             <option>En curso</option><option>Pendiente</option><option>Checklist pendiente de verificar</option>
           </select></label>
+          <button type="button" id="history-clear" class="text-button">Limpiar filtros</button>
         </div>
         <p id="history-count" class="muted" role="status"></p>
-        <div id="history-records" class="history-records"></div>
+        <div class="history-layout"><div id="history-records" class="history-records card"></div><aside id="history-detail" class="card"></aside></div>
       </section>
       <section id="chat" aria-label="Chat Riwi" hidden>
-        <h2 id="chat-title">Chat Riwi</h2>
-        <details class="card" open>
-          <summary>Conversaciones</summary>
-          <label for="chat-search">Buscar conversación</label>
-          <input id="chat-search" type="search" placeholder="Título o tema">
-          <ul id="chat-list" aria-label="Conversaciones guardadas"></ul>
-          <form id="new-chat-form">
-            <label for="new-chat-title">Título de la nueva conversación</label>
-            <input id="new-chat-title" maxlength="100" required>
-            <button type="submit" class="secondary">Nueva conversación</button>
+        <div id="chat-heading" class="row between page-heading">
+          <div><p class="eyebrow">Aprende en conversación</p><h1>Chat Riwi</h1></div>
+          <button id="show-connection" class="connection-badge" type="button" aria-controls="chat-connection">Conectar un modelo</button>
+        </div>
+        <div id="chat-layout" class="chat-layout">
+          <aside class="card chat-sidebar">
+            <button id="start-chat" class="new-chat" type="button" aria-controls="new-chat-form" aria-expanded="false">+ Nueva conversación</button>
+            <form id="new-chat-form" hidden>
+              <label for="new-chat-title">Título de la nueva conversación</label>
+              <input id="new-chat-title" maxlength="100" required>
+              <button type="submit">Crear conversación</button>
+            </form>
+            <input id="chat-search" type="search" aria-label="Buscar conversaciones" placeholder="Buscar conversaciones">
+            <h2 class="eyebrow">Conversaciones guardadas</h2>
+            <ul id="chat-list" aria-label="Conversaciones guardadas"></ul>
+          </aside>
+          <div class="card chat-thread">
+            <button id="show-chat-list" type="button" class="text-button">‹ Conversaciones</button>
+            <div class="thread-heading">
+              <div><h2 id="chat-title">Chat Riwi</h2><div id="chat-context"></div></div>
+              <button id="delete-chat" type="button" class="text-button chat-delete" hidden>Eliminar conversación</button>
+            </div>
+            <div id="messages" class="messages" aria-live="polite"></div>
+            <div id="chat-wait" class="chat-wait" role="status" hidden>✦ Riwi está preparando una explicación…</div>
+            <form id="ask">
+              <p id="active-model" class="muted"></p>
+              <label for="question" class="sr-only">Tu pregunta</label>
+              <div class="composer"><input id="chat-file" type="file" hidden>
+                <button id="attach-chat-file" type="button" class="text-button" aria-label="Adjuntar archivo de texto" title="Adjuntar archivo de texto">+</button>
+                <textarea id="question" maxlength="4000" required placeholder="Escribe tu pregunta…"></textarea>
+                <button id="send" aria-label="Enviar pregunta" title="Enviar pregunta" disabled>↑</button>
+              </div>
+              <button id="cancel-chat" type="button" class="secondary" hidden>■ Cancelar respuesta</button>
+              <small>Adjunta .md o .txt · Las respuestas de IA pueden contener errores.</small>
+            </form>
+          </div>
+        </div>
+        <dialog id="delete-chat-dialog" class="delete-chat-dialog" aria-labelledby="delete-chat-heading">
+          <form method="dialog">
+            <h2 id="delete-chat-heading">¿Eliminar esta conversación?</h2>
+            <p>Se eliminarán sus mensajes y guías guardadas.</p>
+            <div class="row"><button value="cancel" class="secondary" autofocus>Cancelar</button><button value="delete" class="danger">Eliminar conversación</button></div>
           </form>
-        </details>
-        <div id="chat-context"></div>
-        <details class="card" id="chat-connection">
-          <summary>Conectar un modelo</summary>
-          <form id="model-form">
-            <label for="provider">Proveedor</label>
-            <select id="provider">
+        </dialog>
+        <section id="chat-connection" hidden>
+          <button id="back-to-chat" type="button" class="text-button">‹ Volver a Chat Riwi</button>
+          <h1>Un tutor, a tu manera.</h1>
+          <p class="page-description">Conecta un modelo para generar guías y seguir explorando tus dudas.</p>
+          <div class="provider-layout">
+            <div class="card provider-picker">
+              <p class="eyebrow">Elige tu proveedor</p>
+              <div id="provider-menu" role="group" aria-label="Proveedores"></div>
+            </div>
+            <form id="model-form" class="card">
+              <p class="eyebrow">Conectar un modelo</p>
+              <h2 id="provider-heading">Groq</h2>
+              <label for="provider" class="sr-only">Proveedor</label>
+            <select id="provider" hidden>
               <option value="groq">Groq · plan gratuito disponible</option>
               <option value="gemini">Google Gemini · clave de API</option>
               <option value="google-cloud">Google Cloud · cuenta de Google</option>
@@ -78,7 +152,6 @@
               <option value="ollama">Ollama en este dispositivo</option>
               <option value="agent">Agente local · API compatible con OpenAI</option>
             </select>
-            <ol id="provider-steps"></ol>
             <label for="model">Nombre del modelo o agente</label>
             <input id="model" required maxlength="120" autocomplete="off">
             <div id="project-field" hidden>
@@ -87,28 +160,20 @@
             </div>
             <div id="credential-field">
               <label for="credential">Clave de API</label>
-              <input type="password" id="credential" maxlength="4096" autocomplete="off">
+              <div class="auth-password"><input type="password" id="credential" maxlength="4096" autocomplete="off"><button id="show-credential" class="text-button" type="button" aria-pressed="false" aria-controls="credential">Mostrar</button></div>
             </div>
             <div id="port-field" hidden>
               <label for="local-port">Puerto local</label>
               <input type="number" id="local-port" min="1" max="65535">
             </div>
             <label id="usage-field" class="check"><input type="checkbox" id="usage-consent"> <span>Autorizo enviar al proveedor el contexto y el historial de este chat. Se usará mi cuota o saldo y pueden generarse cargos.</span></label>
-            <div class="row"><button id="connect-model" type="submit">Conectar</button><button id="disconnect-model" type="button" class="secondary" hidden>Desconectar</button></div>
             <p id="connection-status" role="status" class="status"></p>
-          </form>
-        </details>
-        <div id="messages" class="messages" aria-live="polite"></div>
-        <form id="ask" class="card">
-          <p id="active-model" class="muted">Conecta un modelo para enviar preguntas.</p>
-          <label for="question">Tu pregunta</label>
-          <textarea id="question" maxlength="4000" required placeholder="Escribe tu pregunta sobre este día"></textarea>
-          <input id="chat-file" type="file" hidden>
-          <button id="attach-chat-file" type="button" class="secondary">Adjuntar archivo de texto</button>
-          <button id="send" disabled>Enviar pregunta</button>
-          <button id="cancel-chat" type="button" class="secondary" hidden>Cancelar respuesta</button>
-          <button id="delete-chat" type="button" class="danger" hidden>Eliminar conversación</button>
-        </form>
+            <ol id="provider-steps"></ol>
+            <p class="provider-privacy">Tu clave se utiliza durante esta sesión. Se descarta al desconectar, recargar o cerrar sesión.</p>
+            <div class="row provider-actions"><button id="connect-model" type="submit">Comprobar conexión →</button><button id="close-connection" type="button" class="secondary">Cancelar</button><button id="disconnect-model" type="button" class="secondary" hidden>Desconectar</button></div>
+            </form>
+          </div>
+        </section>
       </section>
     </main>
   </div>

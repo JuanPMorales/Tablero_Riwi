@@ -42,6 +42,7 @@ export async function closeDatabase() {
 }
 const assets = new Map([
   ['/', ['index.html', 'text/html']], ['/ui.css', ['ui.css', 'text/css']],
+  ['/riwi-inter.woff2', ['riwi-inter.woff2', 'font/woff2']],
   ['/ui.js', ['ui.js', 'application/javascript']], ['/login', ['login.html', 'text/html']],
   ['/chat-blocks.js', ['chat-blocks.js', 'application/javascript']],
   ['/chat-markdown.js', ['node_modules/markdown-it/dist/browser/markdown-it.umd.min.js', 'application/javascript']],
@@ -50,6 +51,14 @@ const assets = new Map([
   ['/google-callback', ['google-callback.html', 'text/html']],
   ['/google-callback.js', ['google-callback.js', 'application/javascript']],
 ].map(([path, [file, type]]) => [path, [readFileSync(new URL(file, import.meta.url)), type]]));
+const iconAssets = new Set([
+  'grid', 'grid-on', 'chat', 'chat-on', 'book', 'book-on',
+  'calendar', 'calendar-on', 'history', 'history-on', 'help', 'bell',
+  'menu', 'mobile-grid', 'mobile-chat', 'mobile-history',
+].map(name => '/riwi-' + name + '.svg'));
+for (const path of iconAssets) {
+  assets.set(path, [readFileSync(new URL('.' + path, import.meta.url)), 'image/svg+xml']);
+}
 const runner = readFileSync(new URL('./chat-runner.html', import.meta.url), 'utf8').replace(/\r\n?/g, '\n');
 const htmlPreview = readFileSync(new URL('./chat-preview.html', import.meta.url), 'utf8').replace(/\r\n?/g, '\n');
 const python = [
@@ -164,7 +173,7 @@ async function request(req, res, pathname) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' http://127.0.0.1:*; frame-src 'self' https://teamlead.up.railway.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+  res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self' http://127.0.0.1:*; frame-src 'self' https://teamlead.up.railway.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   if (production || onVercel) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
   const path = typeof pathname === 'string' ? pathname : new URL(req.url, origin).pathname;
   if (req.method === 'GET' && frameAssets.has(path)) return serveFrame(res, frameAssets.get(path));
@@ -175,7 +184,7 @@ async function request(req, res, pathname) {
     }
     return json(res, 200, { created: await generateNotice() });
   }
-  if (req.method === 'GET' && ['/login', '/login.js', '/ui.css', '/google-callback', '/google-callback.js'].includes(path)) return serveAsset(res, path);
+  if (req.method === 'GET' && (iconAssets.has(path) || ['/login', '/login.js', '/ui.css', '/riwi-inter.woff2', '/google-callback', '/google-callback.js'].includes(path))) return serveAsset(res, path);
   const accountEndpoint = path === '/api/auth/login' || path === '/api/auth/register' || path === '/api/auth/logout';
   if (accountEndpoint && req.method !== 'POST') throw fault(405, 'Método no permitido.');
   if (req.method === 'POST' && !writeOriginAllowed(req.headers)) {

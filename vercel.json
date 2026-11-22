@@ -4,7 +4,7 @@
   "buildCommand": "node -e \"const fs = require('node:fs'); fs.mkdirSync('vercel-static', { recursive: true }); fs.writeFileSync('vercel-static/robots.txt', 'User-agent: *\\nDisallow: /\\n')\"",
   "outputDirectory": "vercel-static",
   "functions": {
-    "api/*.js": { "includeFiles": "{*.html,*.js,ui.css,lessons.json,node_modules/{markdown-it,@highlightjs/cdn-assets,skulpt}/**/{*.umd.min.js,highlight.min.js,skulpt.min.js,skulpt-stdlib.js}}", "maxDuration": 30 }
+    "api/*.js": { "includeFiles": "{*.{html,js,css,svg,woff2},lessons.json,node_modules/{markdown-it,@highlightjs/cdn-assets,skulpt}/**/{*.umd.min.js,highlight.min.js,skulpt.min.js,skulpt-stdlib.js}}", "maxDuration": 30 }
   },
   "rewrites": [
     { "source": "/", "destination": "/api/tablero?path=/" },
@@ -14,6 +14,8 @@
     { "source": "/google-callback", "destination": "/api/tablero?path=/google-callback" },
     { "source": "/google-callback.js", "destination": "/api/tablero?path=/google-callback.js" },
     { "source": "/api/google/token", "destination": "/api/tablero?path=/api/google/token" },
+    { "source": "/riwi-:icon.svg", "destination": "/api/tablero?path=/riwi-:icon.svg" },
+    { "source": "/riwi-inter.woff2", "destination": "/api/tablero?path=/riwi-inter.woff2" },
     { "source": "/ui.css", "destination": "/api/tablero?path=/ui.css" },
     { "source": "/ui.js", "destination": "/api/tablero?path=/ui.js" },
     { "source": "/chat-blocks.js", "destination": "/api/tablero?path=/chat-blocks.js" },
