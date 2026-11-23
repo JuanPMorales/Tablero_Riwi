@@ -439,7 +439,8 @@ function renderCheck() {
     focus = { id: d.id, step };
     show('chat', mode);
   };
-  const controls = box('div', 'route-controls', coursePicker(d));
+  const picker = box('div', 'route-controls', coursePicker(d));
+  const controls = box('div', 'route-controls');
   if (cursor && cursor.id !== d.id) controls.append(button('Retomar mi avance', () => select(cursor.id, cursor.step), 'secondary'));
   const days = state.lessons.filter(day => day.module === d.module && day.week === d.week);
   if (days.some(day => completed(day).count > 0)) {
@@ -507,7 +508,7 @@ function renderCheck() {
       button('Ver o generar guía de IA ↗', () => guide('saved'), 'secondary'),
       button('Pedir más explicación', () => guide('explain'), 'text-button')));
   detail.append(link('Ver ficha en Moodle ↗', d.url));
-  $('check').replaceChildren(heading, hero, routeTitle, box('div', 'dashboard-grid', route, detail), controls);
+  $('check').replaceChildren(heading, picker, hero, routeTitle, box('div', 'dashboard-grid', route, detail), controls);
 }
 function sessionContent(s, compact = false) {
   const day = lesson(s.lesson);
