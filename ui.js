@@ -1151,9 +1151,10 @@ async function askLocal(modelConnection, data, history, signal) {
     ...(quest ? { quest: quest[0], context: quest[1], instruction: quest[2][j], requirements: quest[3] } : {}),
     stepsDone: completed(day).count };
   const prompt = data.guide ? 'Guíame en este paso con un ejemplo y una prueba.' : data.message;
-  const messages = [{ role: 'system', content: 'Ayuda con el ejercicio de Riwi en español. Explica los pasos con ejemplos pequeños y formas de comprobar el resultado.' },
-    { role: 'user', content: JSON.stringify(context) }, ...history.slice(-10).map(({ role, content }) => ({ role, content: content.slice(0, 4000) })),
-    { role: 'user', content: prompt }];
+  const { chatTurns } = await import('/chat-context.mjs');
+  const { tutorRules } = await import('/tutor-rules.mjs');
+  const messages = [{ role: 'system', content: tutorRules },
+    ...chatTurns(context, history, prompt)];
   const ollama = provider === 'ollama';
   if (ollama) await checkOllama(model, signal);
   try {

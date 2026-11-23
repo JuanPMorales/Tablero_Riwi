@@ -1,12 +1,5 @@
 import { tutorPolicy } from './tutor-policy.mjs';
-
-export function chatTurns(context, history, prompt) {
-  return [
-    { role: 'user', content: JSON.stringify(context) },
-    ...history.slice(-10).map(({ role, content }) => ({ role, content: content.slice(0, 4000) })),
-    { role: 'user', content: prompt },
-  ];
-}
+export { chatTurns } from './chat-context.mjs';
 
 export function providerFault(status, message) {
   return Object.assign(new Error(message), { status });

@@ -291,39 +291,42 @@ test('avance inicial, minirreto, completar y reabrir el día, guía e historial 
   assert.equal((await call('/api/import', { ...form, url: result.links.courses, module: 'ingles', week: 1, day: 1 })).status, 200);
 });
 
-test('fechas enlazadas, correcciones y aviso único a las 5:00 en Bogotá', async () => {
+test('fechas enlazadas, correcciones y aviso único a las 5:00 en Bogotá', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2040-11-23T11:00:00Z').getTime() });
+  const login = await call('/api/auth/login', ownerDetails, { auth: false });
+  ownerCookie = login.headers['Set-Cookie'].split(';')[0];
   const s = await openStore(join(directory, 'schedule.sqlite'));
   const source = 'https://moodle.riwi.io/my/';
-  await s.saveSession({ lesson: 2, date: '2026-11-21', label: '', hours: '', source });
+  await s.saveSession({ lesson: 2, date: '2040-11-21', label: '', hours: '', source });
   const entry = (await s.snapshot()).sessions.find(row => row.lesson === 2);
-  assert.equal(entry.date, '2026-11-21');
-  await s.saveSession({ id: entry.id, lesson: 2, date: '2026-11-22', label: '', hours: '', source });
+  assert.equal(entry.date, '2040-11-21');
+  await s.saveSession({ id: entry.id, lesson: 2, date: '2040-11-22', label: '', hours: '', source });
   await s.recordMoodle('expired');
-  assert.equal(await s.makeNotice(new Date('2026-11-22T09:59:59Z')), false);
-  assert.equal(await s.makeNotice(new Date('2026-11-22T10:00:00Z')), true);
-  assert.equal(await s.makeNotice(new Date('2026-11-22T10:01:00Z')), false);
-  const record = (await s.snapshot()).notices[0];
-  assert.equal(record.date, '2026-11-22');
+  assert.equal(await s.makeNotice(new Date('2040-11-22T09:59:59Z')), false);
+  assert.equal(await s.makeNotice(new Date('2040-11-22T10:00:00Z')), true);
+  assert.equal(await s.makeNotice(new Date('2040-11-22T10:01:00Z')), false);
+  const record = (await s.snapshot(new Date('2040-11-22T10:01:00Z'))).notices[0];
+  assert.equal(record.date, '2040-11-22');
   assert.equal(record.scheduled[0].lesson, 2);
   assert.deepEqual(record.cursor, { id: 1, step: '0-0' });
   assert.equal(record.source.status, 'expired');
   assert.deepEqual(record.lessons.map(day => day.id), [2, 1]);
   await s.removeSession(entry.id);
-  assert.equal((await s.snapshot()).notices[0].scheduled[0].lesson, 2);
+  assert.equal((await s.snapshot(new Date('2040-11-22T10:01:00Z'))).notices[0].scheduled[0].lesson, 2);
   s.close();
   assert.equal((await call('/api/session', { lesson: 2, date: '2026-02-30', label: '', hours: '', source })).status, 400);
-  assert.equal((await call('/api/session', { lesson: 2, date: '2026-11-23', label: '', hours: '', source })).status, 200);
+  assert.equal((await call('/api/session', { lesson: 2, date: '2040-11-23', label: '', hours: '', source })).status, 200);
   const otherClient = await openStore(process.env.RIWI_DB_PATH);
   try {
-    await otherClient.makeNotice(new Date('2026-11-23T10:00:00Z'));
+    await otherClient.makeNotice(new Date('2040-11-23T10:00:00Z'));
     const state = (await call('/api/state')).json;
-    const notice = state.notices.find(item => item.date === '2026-11-23');
-    assert.equal(state.sessions.find(item => item.date === '2026-11-23').lesson, 2);
+    const notice = state.notices.find(item => item.date === '2040-11-23');
+    assert.equal(state.sessions.find(item => item.date === '2040-11-23').lesson, 2);
     assert.equal(notice.scheduled[0].lesson, 2);
     assert.equal(notice.lessons.find(day => day.id === 2).title, 'Complejidad');
     assert.equal(state.sessions.find(row => row.label === 'Desarrollo').module, 'algoritmia');
     for (const [label, module] of [['Inglés', 'ingles'], ['HSE', 'hse']]) {
-      const result = await call('/api/session', { date: '2026-11-24', label, hours: '', source });
+      const result = await call('/api/session', { date: '2040-11-24', label, hours: '', source });
       assert.equal(result.json.sessions.find(row => row.label === label).module, module);
       assert.equal(result.json.modules.find(row => row.id === module).url, 'https://moodle.riwi.io/my/courses.php');
     }

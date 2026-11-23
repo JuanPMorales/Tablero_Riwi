@@ -45,6 +45,8 @@ const assets = new Map([
   ['/riwi-inter.woff2', ['riwi-inter.woff2', 'font/woff2']],
   ['/ui.js', ['ui.js', 'application/javascript']], ['/login', ['login.html', 'text/html']],
   ['/chat-blocks.js', ['chat-blocks.js', 'application/javascript']],
+  ['/chat-context.mjs', ['chat-context.mjs', 'application/javascript']],
+  ['/tutor-rules.mjs', ['tutor-rules.mjs', 'application/javascript']],
   ['/chat-markdown.js', ['node_modules/markdown-it/dist/browser/markdown-it.umd.min.js', 'application/javascript']],
   ['/chat-highlight.js', ['node_modules/@highlightjs/cdn-assets/highlight.min.js', 'application/javascript']],
   ['/login.js', ['login.js', 'application/javascript']],
@@ -377,10 +379,13 @@ async function request(req, res, pathname) {
       } else if (p.connection || (RIWI_OLLAMA_MODEL && !(guide && p.basic === true))) {
         const [i, j] = step.split('-').map(Number);
         const quest = step && lesson.quests[i];
-        const { quests, ...day } = lesson;
+        const { quests, title, technology, summary, week, day: dayNumber } = lesson;
+        const day = { title, technology, week, day: dayNumber,
+          ...(!quest ? { summary } : {}) };
         const context = { track: TRAYECTO, module: MODULES.find(m => m.id === lesson.module).name, day,
           quest: quest ? { number: i + 1, title: quest[0], context: quest[1], ...quest[3] } : quests.map(q => q[0]),
-          step: quest ? { number: j + 1, instruction: quest[2][j] } : null, marks: [...await store.ticks(lesson.id)] };
+          step: quest ? { number: j + 1, instruction: quest[2][j] } : null,
+          stepsDone: (await store.ticks(lesson.id)).size };
         const history = await store.chatHistory(lesson.id, threadStep);
         if (p.connection) {
           if (typeof p.connection !== 'object' || p.connection.allowCharges !== true) {
