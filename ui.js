@@ -1144,14 +1144,10 @@ async function askLocal(modelConnection, data, history, signal) {
   const { provider, port, model } = modelConnection;
   const base = `http://127.0.0.1:${port}`;
   const day = lesson(data.id);
-  const [i, j] = data.step.split('-').map(Number);
-  const quest = data.step && day.quests[i];
-  const context = { course: state.track, module: moduleName(day.module), week: day.week, day: day.day,
-    title: day.title, technology: day.technology, summary: day.summary,
-    ...(quest ? { quest: quest[0], context: quest[1], instruction: quest[2][j], requirements: quest[3] } : {}),
-    stepsDone: completed(day).count };
+  const { chatTurns, lessonContext } = await import('/chat-context.mjs');
+  const context = lessonContext(day, { track: state.track, module: moduleName(day.module),
+    step: data.step, stepsDone: completed(day).count });
   const prompt = data.guide ? 'Guíame en este paso con un ejemplo y una prueba.' : data.message;
-  const { chatTurns } = await import('/chat-context.mjs');
   const { tutorRules } = await import('/tutor-rules.mjs');
   const messages = [{ role: 'system', content: tutorRules },
     ...chatTurns(context, history, prompt)];

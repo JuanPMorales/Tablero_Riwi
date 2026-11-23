@@ -7,6 +7,7 @@ import { bogota, guidePrompt, keys, openStore } from './store.mjs';
 import { localAnswer, offlineGuide } from './guide.mjs';
 import { accountAuth, digest } from './auth.mjs';
 import { chatTurns, cloudAnswer } from './providers.mjs';
+import { lessonContext } from './chat-context.mjs';
 import { tutorPolicy } from './tutor-policy.mjs';
 
 const { RIWI_ORIGIN, RIWI_MOODLE_TOKEN, CRON_SECRET, RIWI_OWNER_ACCOUNT_ID, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
@@ -377,15 +378,9 @@ async function request(req, res, pathname) {
         if (p.connection || !text(p.localAnswer, 16000)) throw fault(400, 'La respuesta local no es válida.');
         answer = p.localAnswer;
       } else if (p.connection || (RIWI_OLLAMA_MODEL && !(guide && p.basic === true))) {
-        const [i, j] = step.split('-').map(Number);
-        const quest = step && lesson.quests[i];
-        const { quests, title, technology, summary, week, day: dayNumber } = lesson;
-        const day = { title, technology, week, day: dayNumber,
-          ...(!quest ? { summary } : {}) };
-        const context = { track: TRAYECTO, module: MODULES.find(m => m.id === lesson.module).name, day,
-          quest: quest ? { number: i + 1, title: quest[0], context: quest[1], ...quest[3] } : quests.map(q => q[0]),
-          step: quest ? { number: j + 1, instruction: quest[2][j] } : null,
-          stepsDone: (await store.ticks(lesson.id)).size };
+        const context = lessonContext(lesson, { track: TRAYECTO,
+          module: MODULES.find(m => m.id === lesson.module).name, step,
+          stepsDone: (await store.ticks(lesson.id)).size });
         const history = await store.chatHistory(lesson.id, threadStep);
         if (p.connection) {
           if (typeof p.connection !== 'object' || p.connection.allowCharges !== true) {

@@ -364,6 +364,17 @@ test('el chat usa la credencial solo con el proveedor y conserva el hilo sin gua
       assert.equal(calls[0].url, endpoint);
       assert.ok(!calls[0].options.body.includes(credential));
       assert.ok(calls[0].options.body.includes('JavaScript y Node.js'));
+      if (provider === 'groq') {
+        const sent = JSON.parse(JSON.parse(calls[0].options.body).messages[1].content);
+        const day = (await call('/api/state')).json.lessons.find(item => item.id === 1);
+        assert.deepEqual(sent.selected, { quest: 3, step: 3 });
+        assert.equal(sent.quests.length, day.quests.length);
+        for (const [index, quest] of sent.quests.entries()) {
+          assert.equal(quest.context, day.quests[index][1]);
+          assert.deepEqual(quest.steps, day.quests[index][2]);
+        }
+        assert.equal(sent.profile, undefined);
+      }
       assert.equal(provider === 'gemini' ? calls[0].options.headers['x-goog-api-key'] : calls[0].options.headers.Authorization,
         provider === 'gemini' ? credential : `Bearer ${credential}`);
     } finally {
