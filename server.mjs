@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { MOODLE, COURSE, MY_COURSES, GENIALLY, AGENDA, MODULES, TRAYECTO, ZONE } from './catalog.mjs';
+import { MOODLE, COURSE, MY_COURSES, GENIALLY, MODULES, TRAYECTO, ZONE, agendaForClan, calendarSessionsForClan } from './catalog.mjs';
 import { bogota, guidePrompt, keys, openStore } from './store.mjs';
 import { localAnswer, offlineGuide } from './guide.mjs';
 import { accountAuth, digest } from './auth.mjs';
@@ -103,7 +103,8 @@ function official(value, calendar = false) {
     const url = new URL(value);
     return url.protocol === 'https:' && !url.username && !url.password && !url.port
       && ![...url.searchParams.keys()].some(key => /token|sesskey|password|secret/i.test(key))
-      && (url.origin === MOODLE || (calendar && (value === GENIALLY || value === AGENDA)));
+      && (url.origin === MOODLE || (calendar && (value === GENIALLY
+        || value === agendaForClan(url.searchParams.get('clan')))));
   } catch {
     return false;
   }
@@ -142,9 +143,10 @@ async function body(req) {
   }
 }
 async function state(store, canEdit) {
-  return { ...await store.snapshot(), zone: ZONE, canEdit,
+  const snapshot = await store.snapshot();
+  return { ...snapshot, sessions: calendarSessionsForClan(snapshot.sessions, snapshot.profile?.clan), zone: ZONE, canEdit,
     chatReady: Boolean(RIWI_OLLAMA_MODEL), googleOAuth, moodleProbe: Boolean(RIWI_MOODLE_TOKEN),
-    links: { course: COURSE, courses: MY_COURSES, calendar: MOODLE + '/my/', login: MOODLE + '/login/index.php', genially: GENIALLY, agenda: AGENDA } };
+    links: { course: COURSE, courses: MY_COURSES, calendar: MOODLE + '/my/', login: MOODLE + '/login/index.php', genially: GENIALLY, agenda: agendaForClan(snapshot.profile?.clan) } };
 }
 async function lessonFor(store, id) {
   const lesson = integer(id) && await store.find(id);

@@ -3,6 +3,21 @@ export const COURSE = MOODLE + '/course/view.php?id=137';
 export const MY_COURSES = MOODLE + '/my/courses.php';
 export const GENIALLY = 'https://view.genially.com/66da105683d3400c85f30f74';
 export const AGENDA = 'https://teamlead.up.railway.app/agenda?clan=ritchie';
+const agendaClans = new Set(['gosling', 'nakamoto', 'ritchie', 'tesla', 'turing', 'ubuntu', 'van-rossum']);
+export function agendaForClan(clan) {
+  const slug = typeof clan === 'string' ? clan.trim().toLowerCase().replace(/\s+/g, '-') : '';
+  return 'https://teamlead.up.railway.app/agenda?clan=' + (agendaClans.has(slug) ? slug : 'ritchie');
+}
+export function calendarSessionsForClan(sessions, clan) {
+  const selected = new URL(agendaForClan(clan)).searchParams.get('clan');
+  return sessions.filter(session => {
+    try {
+      const source = new URL(session.source);
+      return source.origin !== 'https://teamlead.up.railway.app' || source.pathname !== '/agenda'
+        || !source.searchParams.has('clan') || source.searchParams.get('clan') === selected;
+    } catch { return true; }
+  });
+}
 export const TRAYECTO = 'Trayecto 2: Algoritmia Avanzada, Análisis de Datos & Simulación';
 export const ZONE = 'America/Bogota';
 export const VERIFIED = '2026-11-14';

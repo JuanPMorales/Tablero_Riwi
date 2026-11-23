@@ -700,6 +700,13 @@ test('perfil privado valida cambios de nombre y conserva contacto por cuenta', a
   assert.equal((await call('/api/auth/profile', { ...before, fullName: 'Nombre distinto' })).status, 409);
   assert.equal((await call('/api/auth/profile', { ...before, phone: '3000000099' })).status, 200);
   assert.equal((await call('/api/auth/profile')).json.phone, '3000000099');
+  const savedProfile = (await call('/api/auth/profile')).json;
+  await call('/api/auth/profile', { ...savedProfile, clan: 'Nakamoto' });
+  const changed = (await call('/api/state')).json;
+  assert.equal(changed.links.agenda, 'https://teamlead.up.railway.app/agenda?clan=nakamoto');
+  assert.equal(changed.profile.clan, 'Nakamoto');
+  assert.ok(!changed.sessions.some(session => session.source?.endsWith('clan=ritchie')));
+  await call('/api/auth/profile', savedProfile);
 });
 
 test.after(async () => {

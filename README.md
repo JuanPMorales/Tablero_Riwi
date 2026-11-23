@@ -86,6 +86,8 @@ Si ya existe el mismo módulo, semana y día, la importación intenta actualizar
 
 El tablero no descarga automáticamente las fichas privadas. En Moodle recorre Semana → Día → Reto → Tus MiniRetos de hoy y consulta cada tarjeta. Conserva los enlaces oficiales. Los materiales cargados se guardan en la base privada, fuera de GitHub. La base de producción puede contener más contenido que el catálogo inicial incluido en el código.
 
+La agenda oficial del calendario usa el clan guardado en **Mi cuenta → Mi perfil**. Al guardar otro clan, el enlace, título y agenda incrustada se actualizan sin cerrar sesión; el cambio persiste al recargar. Los enlaces usan el nombre en minúsculas y guiones para los espacios, por ejemplo `clan=nakamoto` y `clan=van-rossum`. Las cuentas antiguas sin clan conservan Ritchie hasta completar su perfil. Las fechas guardadas con un enlace de agenda de otro clan se ocultan en el calendario, sin borrarlas; las actividades generales de Moodle se conservan. La agenda externa no se importa automáticamente al calendario interno.
+
 ## Notificaciones personalizadas
 
 Desde el buzón puedes seleccionar los días de la semana y una hora en `America/Bogota`. Sin días seleccionados no se generan avisos. Pausar conserva los avisos que aún no hayan vencido y bloquea avisos nuevos; reanudar respeta el horario guardado. Las preferencias persisten al recargar y volver a iniciar sesión.

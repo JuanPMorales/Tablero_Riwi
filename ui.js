@@ -121,6 +121,8 @@ $('edit-profile').onclick = async () => {
         fullName.value = saved.fullName;
         fullName.readOnly = saved.nameLocked;
         state.profile = { fullName: saved.fullName, clan: saved.clan };
+        state = await api('/api/state');
+        renderCalendar();
         $('account-title').textContent = saved.fullName;
         $('clan-label').textContent = 'Clan ' + saved.clan;
         message.textContent = 'Perfil guardado. El nombre ya no se puede modificar.';
@@ -605,15 +607,20 @@ function renderCalendar() {
     ...(sessions.length ? sessions.map(s => sessionContent(s)) : [el('p', 'Sin programación verificada.', 'muted')]),
     ...(future.length ? [el('h3', 'Próximamente'), ...future.map(s => el('p', dateLabel(s.date) + ' · ' + (s.label || lesson(s.lesson)?.title || 'Actividad'), 'muted'))] : []));
   let official = $('calendar').querySelector('#official-agenda');
-  if (!official) {
+  if (official?.dataset.agenda !== state.links.agenda) {
+    const wasOpen = official?.open ?? false;
     const frame = el('iframe', null, 'agenda-frame');
-    frame.title = 'Agenda oficial del clan Ritchie';
+    const clanName = state.profile?.clan || 'Ritchie';
+    frame.title = 'Agenda oficial del clan ' + clanName;
     frame.referrerPolicy = 'no-referrer';
-    official = details('Ver agenda oficial de Ritchie',
+    official = details('Ver agenda oficial de ' + clanName,
       box('p', '', link('Abrir agenda en otra pestaña ↗', state.links.agenda),
         ' · ', link('Genially oficial ↗', state.links.genially)), frame);
     official.id = 'official-agenda';
+    official.dataset.agenda = state.links.agenda;
     official.ontoggle = () => { if (official.open && !frame.hasAttribute('src')) frame.src = state.links.agenda; };
+    official.open = wasOpen;
+    if (wasOpen) frame.src = state.links.agenda;
   }
   $('calendar').replaceChildren(header, el('p', state.canEdit ? 'Puedes editar este calendario. Los estudiantes lo consultan en modo de solo lectura.' : 'Calendario compartido · Hora de Colombia', 'provider-privacy'),
     box('div', 'calendar-layout', schedule, agenda), official);
