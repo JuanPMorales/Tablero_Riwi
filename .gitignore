@@ -8,3 +8,7 @@ backups/
 node_modules/
 .vercel/
 vercel-static/
+.codex/
+coverage/
+test-results/
+*.log

@@ -84,6 +84,7 @@ toggle.onclick = () => {
 };
 form.onsubmit = async event => {
   event.preventDefault();
+  if (form.getAttribute('aria-busy') === 'true') return;
   const values = Object.fromEntries(new FormData(form));
   submit.disabled = toggle.disabled = true;
   form.setAttribute('aria-busy', 'true');

@@ -27,7 +27,7 @@ La contraseña debe cumplir todas estas condiciones, verificadas tanto en el for
 - No contener la cédula de la cuenta.
 - Coincidir con la confirmación.
 
-El formulario indica cuáles condiciones faltan. Para iniciar sesión solo se necesitan cédula y contraseña. Las cuentas anteriores conservan su contraseña y acceso; no se fuerza un nuevo registro. El sistema no verifica la identidad de la cédula, la propiedad del correo ni el celular mediante códigos.
+El formulario indica cuáles condiciones faltan. Solo se permite una cuenta por cédula: la base de datos rechaza duplicados incluso si llegan dos registros simultáneos; un intento repetido no reemplaza la contraseña ni el perfil existente. El formulario también bloquea envíos repetidos mientras procesa la solicitud. Para iniciar sesión solo se necesitan cédula y contraseña. Las cuentas anteriores conservan su contraseña y acceso; no se fuerza un nuevo registro. El sistema no verifica la identidad de la cédula, la propiedad del correo ni el celular mediante códigos.
 
 Las contraseñas se verifican con un hash scrypt y sal aleatoria. Las sesiones utilizan cookies HttpOnly y SameSite y, en producción, Secure. El perfil se guarda en una tabla privada independiente. El nombre y clan mostrados corresponden a la cuenta conectada. En **Mi cuenta → Mi perfil** puedes completar los datos de una cuenta antigua y modificar correo, celular y clan. El nombre completo se guarda una sola vez y después queda bloqueado también en el servidor. La cédula permanece como identificador de acceso y no se puede cambiar desde el perfil.
 

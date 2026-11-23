@@ -9,3 +9,10 @@ data/
 backups/
 *.test.mjs
 vercel-static/
+.codex/
+coverage/
+test-results/
+*.log
+README.md
+Dockerfile
+compose.yaml
