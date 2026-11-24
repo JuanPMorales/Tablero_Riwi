@@ -9,7 +9,7 @@ const included = new Set(['lessons', 'settings', 'sessions', 'session_modules', 
   'account_ticks', 'account_completions', 'account_daily', 'account_notice_dismissals', 'account_security', 'privacy_deletions',
   'account_messages', 'account_threads', 'legacy_thread_titles', 'chat_revisions']);
 const schemaOnly = new Set(['ticks', 'inbox', 'chat', 'completions', 'daily', 'messages', 'logins', 'auth_limits',
-  'account_history_notes', 'account_action_tokens']);
+  'account_history_notes', 'account_action_tokens', 'account_ai_connections']);
 
 export function backupKey(value) {
   const key = Buffer.from(value || '', 'base64');

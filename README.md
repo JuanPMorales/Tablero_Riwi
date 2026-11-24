@@ -116,7 +116,7 @@ El proveedor recibe su clave únicamente como credencial de autenticación, nunc
 
 El chat informa que el historial filtrado se guarda en la cuenta para continuar después. Los perfiles y conversaciones de otras cuentas no se incorporan al contexto. Las notas siguen desactivadas. Se bloquean preguntas con indicadores de salud antes de consultar al modelo. La detección no es infalible: nombres de terceros o datos disfrazados pueden no detectarse; usa datos ficticios. Estas medidas no certifican por sí solas el cumplimiento de la Ley 1581 de 2012.
 
-Las claves personales de los modelos solo viven en memoria de la pestaña y se descartan al desconectar, recargar o cerrar sesión. No se guardan en Turso. El historial se guarda filtrado por cuenta, pero no debe contener secretos ni datos reales de personas. Google requiere configurar `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` y la redirección HTTPS `/google-callback`. Los modelos locales requieren estar instalados y permitir el origen del tablero.
+Sin elegir guardado, las claves solo viven durante la sesión del navegador. Si el usuario lo autoriza, se guardan cifradas por cuenta y no se devuelven al navegador; cerrar sesión no elimina esa copia. El historial se guarda filtrado por cuenta, pero no debe contener secretos ni datos reales de personas. Google requiere configurar `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` y la redirección HTTPS `/google-callback`. Los modelos locales requieren estar instalados y permitir el origen del tablero.
 
 El chat presenta Markdown y código, permite copiarlo y probar JavaScript o Python en un entorno aislado, y previsualizar HTML/CSS. Estas pruebas no ejecutan acciones sobre la base de producción. Eliminar un hilo conserva el checklist y los demás hilos.
 
@@ -146,6 +146,14 @@ El modo sin proveedores externos está activo por defecto en cuentas nuevas y an
 El aviso se actualizó a la revisión `2026-11-24.2` al volver a conservar conversaciones. Las cuentas con una aceptación anterior deben renovarla en Privacidad antes de crear o añadir mensajes a un chat. La lectura y eliminación del historial siguen disponibles; el cambio no borra el progreso ni las conversaciones existentes.
 
 La opción **Eliminar historial de chats** exige escribir `BORRAR`, elimina mensajes, notas y títulos anteriores de esa cuenta y conserva las casillas. **Eliminar mi cuenta** exige contraseña actual y escribir `ELIMINAR`; elimina perfil, progreso, preferencias, tokens y sesiones de la cuenta sin afectar otras cuentas ni fichas. La cuenta administradora no puede eliminarse hasta transferir su función. Queda un identificador técnico derivado del ID y la fecha en `privacy_deletions` para impedir que una restauración vuelva a crear cuentas ya eliminadas. No contiene nombres ni mensajes.
+
+## Claves de IA recordadas y envío con Enter
+
+En Conectar un modelo puedes marcar **Guardar mi clave cifrada** para Groq, OpenAI, Claude o Gemini. Se conserva una conexión por cuenta en `account_ai_connections`: la clave usa AES-256-GCM con nonce aleatorio y autenticación ligada a cuenta, proveedor y modelo. `RIWI_CREDENTIAL_KEY` debe ser un secreto independiente base64 de 32 bytes en el servidor/Vercel; no se deriva de la contraseña, del token de Turso ni de otra clave del servicio. Sin él, el guardado falla con 503 y solo se permite conexión durante la sesión; nunca se guarda en texto plano. No cambies ni pierdas esta clave maestra sin un proceso de migración: las claves guardadas anteriores no podrán abrirse.
+
+La API de consulta devuelve únicamente proveedor, modelo y estado del guardado. Al volver a ingresar se recupera esa referencia y la clave se descifra exclusivamente en el servidor al consultar al proveedor. El cliente no puede indicar el ID de otra cuenta para utilizarla. Se requiere permiso de IA externa y autorización de uso de cuota; ese permiso sigue aplicándose aunque haya una clave guardada. **Desconectar** no borra el cifrado; **Olvidar clave guardada** sí lo elimina. Eliminar la cuenta también lo retira. Las sesiones OAuth y conexiones locales no se guardan como claves de API; los respaldos de la aplicación excluyen estos registros.
+
+En el cuadro de mensajes, **Enter** envía y **Shift+Enter** añade una línea. No se envían mensajes vacíos, mientras hay un envío pendiente ni durante la composición del teclado.
 
 ## Verificación y recuperación por correo
 

@@ -121,7 +121,7 @@
               <label for="question" class="sr-only">Tu pregunta</label>
               <div class="composer"><input id="chat-file" type="file" hidden>
                 <button id="attach-chat-file" type="button" class="text-button" aria-label="Adjuntar archivo de texto" title="Adjuntar archivo de texto">+</button>
-                <textarea id="question" maxlength="4000" required aria-describedby="question-privacy" placeholder="Escribe tu pregunta con datos ficticios…"></textarea>
+                <textarea id="question" maxlength="4000" required enterkeyhint="send" aria-describedby="question-privacy" placeholder="Escribe tu pregunta… Enter envía · Shift+Enter añade una línea"></textarea>
                 <button id="send" aria-label="Enviar pregunta" title="Enviar pregunta" disabled>↑</button>
               </div>
               <button id="cancel-chat" type="button" class="secondary" hidden>■ Cancelar respuesta</button>
@@ -174,9 +174,12 @@
               <input type="number" id="local-port" min="1" max="65535">
             </div>
             <label id="usage-field" class="check"><input type="checkbox" id="usage-consent"> <span>Autorizo enviar al proveedor el contexto y el historial de este chat. Se usará mi cuota o saldo y pueden generarse cargos.</span></label>
+            <label id="remember-field" class="check"><input type="checkbox" id="remember-connection"> <span>Guardar mi clave cifrada en mi cuenta para usarla al volver a entrar. Al enviar mensajes se seguirá usando mi cuota.</span></label>
+            <p id="saved-connection-status" class="muted"></p>
+            <div class="row"><button id="use-saved-connection" type="button" class="secondary" hidden>Usar clave guardada</button><button id="forget-saved-connection" type="button" class="danger" hidden>Olvidar clave guardada</button></div>
             <p id="connection-status" role="status" class="status"></p>
             <ol id="provider-steps"></ol>
-            <p class="provider-privacy">Tu perfil no se envía al modelo. Se filtran datos personales y credenciales detectables del texto, pero la detección no es infalible: usa datos ficticios y no pegues información real de personas. Tu clave autentica la conexión con el proveedor durante esta sesión; se descarta al desconectar, recargar o cerrar sesión.</p>
+            <p class="provider-privacy">Tu perfil no se envía al modelo. Usa datos ficticios: el filtro no es infalible. Sin guardar la clave, solo se usa durante esta sesión. Si eliges guardarla, se cifra por cuenta en el servidor y no se devuelve al navegador. Desconectar no borra la clave guardada: usa «Olvidar clave guardada». Las sesiones de Google y los modelos locales no se guardan como claves de API.</p>
             <div class="row provider-actions"><button id="connect-model" type="submit">Comprobar conexión →</button><button id="close-connection" type="button" class="secondary">Cancelar</button><button id="disconnect-model" type="button" class="secondary" hidden>Desconectar</button></div>
             </form>
           </div>

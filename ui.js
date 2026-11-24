@@ -1103,6 +1103,7 @@ function updateConnectionForm() {
   $('usage-consent').required = !local;
   $('usage-consent').checked = false;
   $('connect-model').textContent = provider === 'google-cloud' ? 'Continuar con Google →' : 'Comprobar conexión →';
+  updateSavedConnectionControls();
 }
 function chatControls() {
   const ready = Boolean(connection || state?.chatReady);
@@ -1117,6 +1118,17 @@ function chatControls() {
   $('disconnect-model').hidden = !connection && !googlePending;
   $('active-model').textContent = connection ? `Modelo activo · ${connection.model}`
     : state?.chatReady ? 'Modelo activo · Ollama del servidor' : 'Conecta un modelo para enviar preguntas.';
+  updateSavedConnectionControls();
+}
+function updateSavedConnectionControls() {
+  const saved = state?.aiConnection;
+  $('remember-field').hidden = !['groq', 'openai', 'claude', 'gemini'].includes($('provider').value);
+  $('remember-connection').disabled = !saved?.configured;
+  $('use-saved-connection').hidden = $('forget-saved-connection').hidden = !saved?.saved;
+  $('use-saved-connection').disabled = !saved?.configured || !state?.privacy?.externalAIAllowed;
+  $('saved-connection-status').textContent = saved?.saved ? `Clave guardada para ${providerLabels[saved.provider]}. Su valor no se muestra.`
+    : saved?.configured ? 'Puedes guardar una clave por cuenta. Los demás usuarios no pueden verla ni usarla.'
+    : 'El guardado cifrado aún no está configurado. Puedes usar una clave solo durante esta sesión.';
 }
 function connect(modelConnection) {
   connection = modelConnection;
@@ -1190,6 +1202,24 @@ window.addEventListener('message', async event => {
 });
 $('provider').onchange = updateConnectionForm;
 $('disconnect-model').onclick = disconnect;
+$('use-saved-connection').onclick = async () => {
+  try {
+    const saved = await api('/api/auth/ai-connection');
+    state.aiConnection = saved;
+    if (!saved.saved || !saved.configured || !state.privacy?.externalAIAllowed) throw new Error('Revisa la clave guardada y el permiso de IA externa en Privacidad.');
+    connect({ provider: saved.provider, model: saved.model, saved: true, allowCharges: true });
+  } catch (error) { connectionStatus(error.message, true); }
+};
+$('forget-saved-connection').onclick = async () => {
+  try {
+    const provider = state.aiConnection?.provider;
+    state.aiConnection = await api('/api/auth/ai-connection', { action: 'forget' });
+    if (connection?.provider === provider) disconnect();
+    $('remember-connection').checked = false;
+    chatControls();
+    connectionStatus('La clave guardada se eliminó. Si sospechas que se expuso, revócala también en tu proveedor.');
+  } catch (error) { connectionStatus(error.message, true); }
+};
 window.addEventListener('pagehide', () => {
   if (connection || googlePending || $('credential').value) disconnect();
 });
@@ -1220,7 +1250,11 @@ $('model-form').onsubmit = async event => {
     } else if (provider === 'google-cloud') {
       await startGoogle({ provider, model, project, allowCharges: true });
     } else if (/^[\x21-\x7e]{12,4096}$/.test(credential)) {
-      connect({ provider, model, credential, allowCharges: true });
+      if ($('remember-connection').checked && !$('remember-connection').disabled) {
+        state.aiConnection = await api('/api/auth/ai-connection', { provider, model, credential, allowCharges: true, remember: true });
+        $('credential').value = '';
+        connect({ provider, model, saved: true, allowCharges: true });
+      } else connect({ provider, model, credential, allowCharges: true });
     } else {
       connectionStatus('Revisa tu clave de API.', true);
     }
@@ -1474,6 +1508,11 @@ $('ask').onsubmit = event => {
   event.preventDefault();
   if (focus && (connection || state.chatReady)) sendChat({ ...focus, message: $('question').value });
 };
+$('question').onkeydown = event => {
+  if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey || event.isComposing || event.keyCode === 229) return;
+  event.preventDefault();
+  if (!$('send').disabled && $('question').value.trim()) $('ask').requestSubmit();
+};
 $('attach-chat-file').onclick = () => $('chat-file').click();
 $('chat-file').onchange = async event => {
   const input = event.currentTarget;
@@ -1525,6 +1564,16 @@ async function refresh(initial) {
     const next = await api('/api/state');
     if (pending || chatPending) return;
     state = next;
+    if (connection?.saved && (!next.aiConnection?.saved || !next.privacy?.externalAIAllowed)) disconnect();
+    if ((initial || connection?.saved) && next.aiConnection?.saved && next.aiConnection.configured && next.privacy?.externalAIAllowed) {
+      connection = { provider: next.aiConnection.provider, model: next.aiConnection.model, saved: true, allowCharges: true };
+      if (initial) {
+        $('provider').value = connection.provider;
+        updateConnectionForm();
+        $('model').value = connection.model;
+        $('remember-connection').checked = true;
+      }
+    }
     if (!selected) selected = state.resume?.id ?? state.lessons.at(-1)?.id;
     if (initial) {
       calendarDate = state.today;

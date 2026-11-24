@@ -133,6 +133,7 @@ export function accountPrivacy(db, { sendMail = deliverMail, now = () => Date.no
       for (const table of ['account_ticks', 'account_completions', 'account_history_notes', 'account_messages', 'chat_revisions', 'account_threads', 'legacy_thread_titles', 'account_daily', 'account_notice_dismissals', 'logins', 'account_action_tokens', 'account_security', 'account_profiles']) {
         await db.execute(`DELETE FROM ${table} WHERE account=?`, [account]);
       }
+      if (await get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='account_ai_connections'")) await db.execute('DELETE FROM account_ai_connections WHERE account=?', [account]);
       await db.execute('DELETE FROM settings WHERE substr(key,1,?)=?', [account.length + 1, account + ':']);
       await db.execute('DELETE FROM accounts WHERE id=?', [account]);
       await db.execute('INSERT OR REPLACE INTO privacy_deletions VALUES (?,?)', [digest(account).toString('hex'), now()]);

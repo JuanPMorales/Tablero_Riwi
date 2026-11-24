@@ -799,6 +799,52 @@ test('privacidad real: consentimiento obligatorio, IA externa apagada, historial
   } finally { globalThis.fetch = originalFetch; database.close(); }
 });
 
+test('claves guardadas: API nunca las devuelve y solo usa el cifrado de la cuenta autenticada', async () => {
+  const previous = process.env.RIWI_CREDENTIAL_KEY;
+  process.env.RIWI_CREDENTIAL_KEY = Buffer.alloc(32, 29).toString('base64');
+  const credential = 'clave-ficticia-propietario-123', otherCredential = 'clave-ficticia-estudiante-456';
+  const originalFetch = globalThis.fetch;
+  const connection = { provider: 'groq', model: 'openai/gpt-oss-20b', credential, remember: true, allowCharges: true };
+  try {
+    assert.equal((await call('/api/auth/ai-connection', undefined, { auth: false })).status, 401);
+    const saved = await call('/api/auth/ai-connection', connection);
+    assert.equal(saved.status, 200);
+    assert.equal(saved.json.saved, true);
+    assert.ok(!saved.value.includes(credential));
+    assert.ok(!(await call('/api/state')).value.includes(credential));
+    const login = await call('/api/auth/login', { document: '1000000002', password: 'Other-fixture-42' }, { auth: false });
+    assert.equal(login.status, 200);
+    const cookie = login.headers['Set-Cookie'].split(';')[0];
+    assert.equal((await call('/api/auth/ai-connection', undefined, { cookie })).json.saved, false);
+    await call('/api/auth/privacy', { accepted: true, externalAIAllowed: true }, { cookie });
+    const missing = await call('/api/chat', { id: 1, step: '0-0', message: 'Una pregunta', connection: { saved: true, account: 'owner' } }, { cookie });
+    assert.equal(missing.status, 404, 'No se puede pedir la clave de otro usuario por ID');
+    assert.equal((await call('/api/auth/ai-connection', { ...connection, credential: otherCredential }, { cookie })).status, 200);
+    let used = false;
+    globalThis.fetch = async (url, options) => {
+      assert.equal(url, 'https://api.groq.com/openai/v1/chat/completions');
+      assert.equal(options.headers.Authorization, `Bearer ${otherCredential}`);
+      assert.ok(!options.body.includes(otherCredential));
+      assert.ok(!options.body.includes(credential));
+      used = true;
+      return Response.json({ choices: [{ message: { content: 'Una pista sin credenciales' } }] });
+    };
+    const reply = await call('/api/chat', { id: 1, step: '0-0', message: 'Una pregunta',
+      connection: { saved: true, account: 'owner', provider: 'otro', model: 'ignorado' } }, { cookie });
+    assert.equal(reply.status, 200); assert.equal(used, true);
+    assert.ok(!reply.value.includes(otherCredential));
+    await call('/api/auth/ai-connection', { action: 'forget', account: 'otra-cuenta' });
+    assert.equal((await call('/api/auth/ai-connection')).json.saved, false);
+    assert.equal((await call('/api/auth/ai-connection', undefined, { cookie })).json.saved, true);
+    await call('/api/auth/privacy', { accepted: true, externalAIAllowed: false }, { cookie });
+    assert.equal((await call('/api/chat', { id: 1, message: 'Una pregunta', connection: { saved: true } }, { cookie })).status, 403);
+    await call('/api/auth/ai-connection', { action: 'forget' }, { cookie });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previous === undefined) delete process.env.RIWI_CREDENTIAL_KEY; else process.env.RIWI_CREDENTIAL_KEY = previous;
+  }
+});
+
 test.after(async () => {
   await closeDatabase();
   for (const file of ['schedule.sqlite', 'beta.sqlite', 'handlers.sqlite']) rmSync(join(directory, file), { force: true });

@@ -12,6 +12,7 @@ import { tutorPolicy } from './tutor-policy.mjs';
 import { profilePrivateValues, redactAIText, assertAIQuestionSafe } from './ai-privacy.mjs';
 import { privateChatDatabase } from './private-chat.mjs';
 import { accountPrivacy, privacyPolicy } from './account-privacy.mjs';
+import { credentialVault } from './credential-vault.mjs';
 
 const { RIWI_ORIGIN, RIWI_MOODLE_TOKEN, CRON_SECRET, RIWI_OWNER_ACCOUNT_ID, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
 const googleOAuth = GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET ? GOOGLE_CLIENT_ID : null;
@@ -152,6 +153,7 @@ async function state(store, canEdit) {
   const snapshot = await store.snapshot();
   return { ...snapshot, sessions: calendarSessionsForClan(snapshot.sessions, snapshot.profile?.clan), zone: ZONE, canEdit,
     privacy: store.privacy,
+    aiConnection: store.aiConnection,
     chatReady: Boolean(RIWI_OLLAMA_MODEL), googleOAuth, moodleProbe: Boolean(RIWI_MOODLE_TOKEN),
     links: { course: COURSE, courses: MY_COURSES, calendar: MOODLE + '/my/', login: MOODLE + '/login/index.php', genially: GENIALLY, agenda: agendaForClan(snapshot.profile?.clan) } };
 }
@@ -206,6 +208,8 @@ async function request(req, res, pathname) {
   const database = await getStore();
   const auth = accountAuth(database.db, { secure: production || onVercel });
   const privacy = accountPrivacy(database.db);
+  const vault = credentialVault(database.db);
+  await vault.ready;
   const address = (onVercel ? req.headers['x-forwarded-for'] : req.socket?.remoteAddress) || 'unknown';
   const requestOrigin = onVercel ? (process.env.RIWI_PUBLIC_URL || 'https://tablero-riwi.vercel.app') : origin;
   if (new URL(requestOrigin).origin !== requestOrigin || (onVercel && !requestOrigin.startsWith('https://'))) throw fault(503, 'Revisa el origen público configurado.');
@@ -249,6 +253,16 @@ async function request(req, res, pathname) {
   const canEdit = account === ((await database.contentOwner()) || RIWI_OWNER_ACCOUNT_ID);
   const store = database.forAccount(account);
   store.privacy = await privacy.state(account);
+  store.aiConnection = await vault.metadata(account);
+  if (path === '/api/auth/ai-connection') {
+    if (req.method === 'GET') return json(res, 200, await vault.metadata(account));
+    if (req.method !== 'POST') throw fault(405, 'Método no permitido.');
+    const payload = await body(req);
+    if (payload.action === 'forget') return json(res, 200, await vault.forget(account));
+    if (!store.privacy.accepted || !store.privacy.externalAIAllowed) throw fault(403, 'Autoriza la IA externa en Privacidad antes de guardar una clave.');
+    if (payload.remember !== true || payload.allowCharges !== true) throw fault(400, 'Confirma el guardado cifrado y el uso de tu cuota.');
+    return json(res, 200, await vault.save(account, payload));
+  }
   if (path === '/api/auth/privacy') {
     if (req.method === 'GET') return json(res, 200, await privacy.state(account));
     if (req.method === 'POST') {
@@ -436,6 +450,7 @@ async function request(req, res, pathname) {
     if (!guide && !text(p.message, 4000)) throw fault(400, 'Escribe una pregunta.');
     if (!guide) assertAIQuestionSafe(p.message);
     if (p.connection && !(await privacy.state(account)).externalAIAllowed) throw fault(403, 'El modo sin proveedores externos está activo. Puedes cambiarlo en Privacidad.');
+    if (p.connection?.saved === true) p.connection = await vault.load(account);
     if (!guide && !p.connection && !p.localAnswer && !RIWI_OLLAMA_MODEL) throw fault(503, 'Conecta un modelo para conversar.');
     const thread = account + '/' + lesson.id + '/' + threadStep;
     if (busy.has(thread) || (RIWI_OLLAMA_MODEL && busy.size)) throw fault(409, 'Ya hay una respuesta en curso.');
@@ -443,7 +458,7 @@ async function request(req, res, pathname) {
     try {
       const privateValues = profilePrivateValues(await store.readProfile());
       privateValues.push(...Object.entries(process.env)
-        .filter(([key, value]) => /TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY|BACKUP_KEY/.test(key) && value?.length >= 8)
+        .filter(([key, value]) => /TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY|BACKUP_KEY|CREDENTIAL_KEY/.test(key) && value?.length >= 8)
         .map(([, value]) => value));
       if (typeof p.connection?.credential === 'string') privateValues.push(p.connection.credential);
       let prompt = guide ? guidePrompt : p.message.trim();
