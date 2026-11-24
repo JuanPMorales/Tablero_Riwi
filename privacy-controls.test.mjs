@@ -16,34 +16,48 @@ const payload = { document: '9000000451', password: 'PruebaPrivada123!', confirm
   fullName: 'Perfil Ficticio', email: 'perfil@example.test', phone: '3000000000', clan: 'Ubuntu' };
 const req = cookie => ({ headers: cookie ? { cookie } : {} });
 const res = () => ({ setHeader(name, value) { this[name] = value; } });
-async function fixture() {
-  const store = await openStore(':memory:'), auth = accountAuth(store.db, { secure: true });
+async function fixture(path = ':memory:') {
+  const store = await openStore(path), auth = accountAuth(store.db, { secure: true });
   const response = res();
   await auth.authenticate(req(), response, payload, true, 'fixture');
   const cookie = response['Set-Cookie'].split(';')[0], id = await auth.session(req(cookie));
   return { store, auth, cookie, id };
 }
 
-test('texto libre del chat, títulos y notas nunca se escriben en tablas persistentes', async () => {
-  const { store, id } = await fixture();
-  let now = 100000;
-  const privacy = privateChatDatabase(store, { now: () => now, ttl: 1000 });
+test('el chat filtrado persiste al reabrir la base, mantiene su contexto y no mezcla cuentas ni guarda títulos personales', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'riwi-private-chat-'));
+  const path = join(directory, 'fixture.sqlite');
+  const { store, id } = await fixture(path);
+  let privacy = privateChatDatabase(store);
   try {
     const account = privacy.forAccount(id), other = privacy.forAccount('otra-cuenta');
     const chat = await account.createChat(1, '0-0', 'Nombre personal que no debe guardarse');
-    await account.saveChat(1, '0-0', 'Una nota con un nombre desconocido', 'Respuesta temporal', 0);
+    await account.saveChat(1, '0-0', `Ayúdame con reduce. ${payload.fullName} ${payload.email}`, `Documento: ${payload.document}`, 0);
     assert.equal((await account.chatHistory(1, '0-0')).length, 2);
     assert.deepEqual(await other.chatHistory(1, '0-0'), []);
-    assert.equal(chat.title, 'Conversación temporal');
+    assert.equal(chat.title, 'Conversación de estudio');
     await assert.rejects(account.saveHistoryNote(1, 'Nota privada'), { status: 403 });
-    for (const table of ['account_messages', 'account_history_notes', 'account_threads', 'legacy_thread_titles', 'messages', 'chat']) {
+    for (const table of ['account_history_notes', 'legacy_thread_titles', 'messages', 'chat']) {
       assert.equal((await store.db.execute(`SELECT COUNT(*) AS total FROM ${table}`)).rows[0].total, 0);
     }
+    assert.equal((await store.db.execute('SELECT COUNT(*) AS total FROM account_messages')).rows[0].total, 2);
+    const saved = await account.chatHistory(1, '0-0');
+    for (const value of [payload.fullName, payload.email, payload.document]) assert.ok(!JSON.stringify(saved).includes(value));
+    assert.ok(saved[0].content.includes('reduce'));
     await account.applyTicks(1, { '0-0': true });
-    now += 1001;
-    assert.deepEqual(await account.chatHistory(1, '0-0'), []);
-    assert.equal((await account.snapshot()).checked.length, 1);
-  } finally { privacy.close(); }
+    privacy.close();
+    privacy = privateChatDatabase(await openStore(path));
+    const reopened = privacy.forAccount(id);
+    assert.deepEqual(await reopened.chatHistory(1, '0-0'), saved);
+    assert.equal((await reopened.snapshot()).checked.length, 1);
+    assert.equal((await reopened.findChat(chat.chat)).title, 'Conversación de estudio');
+    assert.deepEqual(await privacy.forAccount('otra-cuenta').chatHistory(1, '0-0'), []);
+  } finally {
+    privacy.close();
+    assert.equal(dirname(directory), tmpdir());
+    assert.ok(basename(directory).startsWith('riwi-private-chat-'));
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('verificación y recuperación usan correo del perfil, tokens de un uso, vencimiento y revocación de sesiones', async () => {
@@ -91,6 +105,9 @@ test('eliminar cuenta exige contraseña y confirmación, conserva otras cuentas 
     await store.forAccount(id).applyTicks(1, { '0-0': true });
     await privacy.consent(id, true, true);
     assert.equal((await privacy.state(id)).externalAIAllowed, true);
+    await store.db.execute('UPDATE account_security SET privacy_version=? WHERE account=?', ['2026-11-24', id]);
+    assert.equal((await privacy.state(id)).accepted, false, 'El cambio de conservación exige renovar el aviso');
+    assert.equal((await privacy.state(id)).externalAIAllowed, false);
     await privacy.consent(id, false, true);
     assert.equal((await privacy.state(id)).externalAIAllowed, false);
     await assert.rejects(privacy.erase(id, 'Incorrecta123', 'ELIMINAR', 'otro-owner'), { status: 401 });
@@ -103,13 +120,14 @@ test('eliminar cuenta exige contraseña y confirmación, conserva otras cuentas 
   } finally { store.close(); }
 });
 
-test('respaldo cifrado restaura integridad y progreso sin chats ni sesiones ni revivir cuentas eliminadas', async () => {
+test('respaldo cifrado restaura progreso y chats filtrados sin sesiones ni revivir cuentas eliminadas', async () => {
   const { store, id } = await fixture();
   const privacy = accountPrivacy(store.db, { sendMail: async () => {} });
   try {
     await privacy.consent(id, true, true);
     await store.forAccount(id).applyTicks(1, { '0-0': true });
     await store.forAccount(id).saveHistoryNote(1, 'Texto antiguo que no debe ir al respaldo');
+    await store.forAccount(id).saveChat(1, '0-0', `Ayúdame con reduce ${payload.email}`, 'Prueba el arreglo vacío', 0);
     const snapshot = await snapshotDatabase(store.db), key = randomBytes(32);
     const encrypted = encryptBackup(snapshot, key);
     assert.ok(!encrypted.includes(Buffer.from(payload.email)));
@@ -120,9 +138,12 @@ test('respaldo cifrado restaura integridad y progreso sin chats ni sesiones ni r
     const decoded = decryptBackup(encrypted, key), counts = restorePrivateSnapshot(decoded, ':memory:');
     assert.equal(counts.accounts, 1); assert.equal(counts.account_ticks, 1); assert.equal(counts.logins, 0);
     assert.equal(counts.account_history_notes, 0);
+    assert.equal(counts.account_messages, 2);
+    assert.ok(!JSON.stringify(decoded.tables.find(table => table.name === 'account_messages')).includes(payload.email));
     assert.equal(decoded.tables.find(table => table.name === 'account_security').rows[0].external_ai, 0);
     const afterDeletion = restorePrivateSnapshot(decoded, ':memory:', [digest(id).toString('hex')]);
     assert.equal(afterDeletion.accounts, 0); assert.equal(afterDeletion.account_profiles, 0); assert.equal(afterDeletion.account_ticks, 0);
+    assert.equal(afterDeletion.account_messages, 0);
     assert.ok(afterDeletion.lessons > 0);
   } finally { store.close(); }
 });

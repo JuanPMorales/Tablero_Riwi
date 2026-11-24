@@ -216,7 +216,7 @@ test('cada cédula conserva sus propios cambios, sesión e historial de guía', 
   assert.equal((await call('/api/state')).json.notificationsPaused, false);
   await call('/api/notifications', { paused: false }, { cookie: resumedCookie });
   assert.equal((await call('/api/state', undefined, { cookie: otherDevice })).json.checked.length, 1);
-  assert.equal((await call('/api/chat/1/2-0', undefined, { cookie: otherDevice })).json.length, 0);
+  assert.equal((await call('/api/chat/1/2-0', undefined, { cookie: otherDevice })).json.length, 2);
   assert.equal((await call('/api/history/note', { id: 1, note: ' Repasar reduce ' }, { cookie: otherDevice })).status, 403);
   assert.equal((await call('/api/state')).json.historyNotes[1], undefined);
   assert.equal((await call('/api/state', undefined, { cookie: otherDevice })).json.historyNotes[1], undefined);
@@ -224,8 +224,8 @@ test('cada cédula conserva sus propios cambios, sesión e historial de guía', 
   assert.equal((await call('/api/chat', { id: 1, step: '2-0', guide: true }, { cookie: otherDevice })).status, 200);
   assert.equal((await call('/api/chat/rename', { id: 1, step: '2-0', title: 'Privado' })).status, 404);
   assert.equal((await call('/api/chat/rename', { id: 1, step: '2-0', title: ' Repasar arreglos ' }, { cookie: otherDevice })).status, 200);
-  assert.equal((await call('/api/chat/list', undefined, { cookie: otherDevice })).json[0].title, 'Conversación temporal');
-  assert.equal((await call('/api/focus', { id: 1, step: '2-0' }, { cookie: otherDevice })).json.title, 'Conversación temporal');
+  assert.equal((await call('/api/chat/list', undefined, { cookie: otherDevice })).json[0].title, 'Conversación de estudio');
+  assert.equal((await call('/api/focus', { id: 1, step: '2-0' }, { cookie: otherDevice })).json.title, 'Conversación de estudio');
   assert.equal((await call('/api/chat/1/2-0', undefined, { cookie: otherDevice })).json.length, 2);
   assert.equal((await call('/api/auth/logout', {}, { cookie })).status, 200);
   assert.equal((await call('/api/state', undefined, { cookie })).status, 401);
@@ -276,7 +276,7 @@ test('avance inicial, minirreto, completar y reabrir el día, guía e historial 
   const reread = await openStore(process.env.RIWI_DB_PATH);
   assert.equal((await reread.snapshot()).checked.length, 27);
   assert.equal((await reread.snapshot()).history[0].lesson, 1);
-  assert.deepEqual(await reread.chatHistory(1, '2-0'), [], 'El texto nuevo del chat no se escribe en la base');
+  assert.deepEqual((await reread.chatHistory(1, '2-0')).map(row => ({ ...row })), guided.json, 'La guía se conserva para continuar tras recargar');
   reread.close();
 
   const form = {
@@ -455,8 +455,8 @@ test('varias conversaciones del mismo paso se aíslan y las instrucciones del tu
   assert.equal(first.status, 201);
   assert.notEqual(first.json.chat, second.json.chat);
   assert.equal((await call('/api/focus', first.json)).json.instructions, undefined);
-  assert.equal((await call('/api/chat/rename', { ...first.json, title: 'Ejercicios de bucles' })).json.title, 'Conversación temporal');
-  assert.equal((await call('/api/focus', first.json)).json.title, 'Conversación temporal');
+  assert.equal((await call('/api/chat/rename', { ...first.json, title: 'Ejercicios de bucles' })).json.title, 'Conversación de estudio');
+  assert.equal((await call('/api/focus', first.json)).json.title, 'Conversación de estudio');
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
     assert.match(JSON.parse(options.body).messages[0].content, /Trazar los bucles con el tutor privado/);
@@ -756,7 +756,7 @@ test('la solicitud real del tutor filtra el perfil y el historial antes de salir
   }
 });
 
-test('privacidad real: consentimiento obligatorio, IA externa apagada, cero texto nuevo persistido y eliminación propia', async () => {
+test('privacidad real: consentimiento obligatorio, IA externa apagada, historial propio filtrado y eliminación propia', async () => {
   const details = { ...ownerDetails, document: '1000000088', fullName: 'Cuenta Temporal', email: 'temporal@example.test', phone: '' };
   assert.equal((await call('/api/auth/register', { ...details, privacyAccepted: false }, { auth: false })).status, 400);
   const registration = await call('/api/auth/register', details, { auth: false });
@@ -765,7 +765,8 @@ test('privacidad real: consentimiento obligatorio, IA externa apagada, cero text
   const connection = { provider: 'groq', model: 'openai/gpt-oss-20b', credential: 'credencial-ficticia-privacidad', allowCharges: true };
   const initial = (await call('/api/state', undefined, { cookie })).json;
   assert.equal(initial.privacy.externalAIAllowed, false);
-  assert.equal(initial.temporaryChat, true);
+  assert.equal(initial.temporaryChat, false);
+  assert.equal(initial.notesDisabled, true);
   assert.equal((await call('/api/chat', { id: 1, step: '0-0', message: 'Una pregunta', connection }, { cookie })).status, 403);
   assert.equal((await call('/api/history/note', { id: 1, note: 'Nombre no reconocido por un filtro' }, { cookie })).status, 403);
   assert.equal((await call('/api/auth/verify-email', {}, { cookie })).status, 503);
@@ -779,7 +780,7 @@ test('privacidad real: consentimiento obligatorio, IA externa apagada, cero text
     const reply = await call('/api/chat', { id: 1, step: '0-0', message: 'Una pregunta con texto libre', connection }, { cookie });
     assert.equal(reply.status, 200);
     assert.equal(reply.json.length, 2);
-    assert.deepEqual(await database.forAccount(account).chatHistory(1, '0-0'), []);
+    assert.deepEqual((await database.forAccount(account).chatHistory(1, '0-0')).map(row => ({ ...row })), reply.json);
     assert.equal((await database.db.execute('SELECT COUNT(*) AS total FROM account_history_notes WHERE account=?', [account])).rows[0].total, 0);
     await call('/api/auth/privacy', { accepted: true, externalAIAllowed: false }, { cookie });
     assert.equal((await call('/api/chat', { id: 1, step: '0-0', message: 'Otra pregunta', connection }, { cookie })).status, 403);
@@ -788,6 +789,7 @@ test('privacidad real: consentimiento obligatorio, IA externa apagada, cero text
     const cleanup = await call('/api/auth/erase-history', { confirmation: 'BORRAR' }, { cookie });
     assert.equal(cleanup.status, 200);
     assert.deepEqual((await database.forAccount(account).snapshot()).historyNotes, {});
+    assert.deepEqual(await database.forAccount(account).chatHistory(1, '0-0'), []);
     assert.equal((await database.forAccount(account).snapshot()).checked.length, 1);
     assert.equal((await call('/api/auth/delete-account', { password: 'Incorrecta123', confirmation: 'ELIMINAR' }, { cookie })).status, 401);
     assert.equal((await call('/api/auth/delete-account', { password: details.password, confirmation: 'ELIMINAR' }, { cookie })).status, 200);

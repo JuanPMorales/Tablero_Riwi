@@ -2,7 +2,7 @@ import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { digest, passwordRules } from './auth.mjs';
 
-export const PRIVACY_VERSION = '2026-11-24';
+export const PRIVACY_VERSION = '2026-11-24.2';
 const derive = promisify(scrypt);
 const hashOptions = { N: 2 ** 15, r: 8, p: 3, maxmem: 64 * 1024 * 1024 };
 const services = new WeakMap();
@@ -37,7 +37,7 @@ export function accountPrivacy(db, { sendMail = deliverMail, now = () => Date.no
     return { version: PRIVACY_VERSION, accepted: row?.privacy_version === PRIVACY_VERSION,
       externalAIAllowed: row?.external_ai === 1 && row?.privacy_version === PRIVACY_VERSION,
       emailVerified: Boolean(current?.email && row?.verified_email === current.email),
-      mailReady: privacyPolicy().mailReady, temporaryChat: true };
+      mailReady: privacyPolicy().mailReady, temporaryChat: false };
   }
   async function consent(account, externalAIAllowed, accepted) {
     await ready;

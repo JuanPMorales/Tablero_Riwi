@@ -396,6 +396,9 @@ async function request(req, res, pathname) {
     const lesson = await lessonFor(store, p.id);
     const step = p.step ?? '';
     if (typeof step !== 'string' || (step && !keys(lesson).includes(step))) throw fault(404, 'Paso no encontrado.');
+    if (['/api/chat', '/api/chat/new', '/api/chat/rename'].includes(path) && !(await privacy.state(account)).accepted) {
+      throw fault(403, 'Acepta el aviso actualizado en Privacidad y seguridad: el historial de estudio se guardará en tu cuenta.');
+    }
     if (path === '/api/chat/new') {
       if (!text(p.title, 100)) throw fault(400, 'Escribe un título para la conversación.');
       return json(res, 201, await store.createChat(lesson.id, step, p.title.trim()));
@@ -409,7 +412,7 @@ async function request(req, res, pathname) {
     const threadStep = p.chat ? `${step}~${p.chat}` : step;
     if (path === '/api/chat/rename') {
       if (!text(p.title, 100)) throw fault(400, 'Escribe un título para la conversación.');
-      const title = 'Conversación temporal';
+      const title = 'Conversación de estudio';
       if (!await store.renameChat(lesson.id, step, p.chat, title)) throw fault(404, 'Conversación no encontrada.');
       return json(res, 200, { title });
     }
@@ -476,7 +479,7 @@ async function request(req, res, pathname) {
       const usedBasic = !answer;
       answer = usedBasic ? 'Guía del tablero\n\n' + offlineGuide(lesson, step) : 'Respuesta de IA\n\n' + answer;
       answer = redactAIText(answer, privateValues);
-      if (await auth.session(req) !== account) throw fault(401, 'La sesión terminó. No se conserva la respuesta temporal.');
+      if (await auth.session(req) !== account) throw fault(401, 'La sesión terminó. No se guarda la respuesta.');
       const saved = guide ? await store.saveGuide(lesson.id, threadStep, usedBasic, answer, revision)
         : await store.saveChat(lesson.id, threadStep, prompt, answer, revision);
       if (!saved) throw deleted();

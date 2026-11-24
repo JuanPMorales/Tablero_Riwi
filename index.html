@@ -105,8 +105,8 @@
               <button type="submit">Crear conversación</button>
             </form>
             <input id="chat-search" type="search" aria-label="Buscar conversaciones" placeholder="Buscar conversaciones">
-            <h2 class="eyebrow">Conversaciones temporales</h2>
-            <ul id="chat-list" aria-label="Conversaciones temporales"></ul>
+            <h2 class="eyebrow">Conversaciones guardadas</h2>
+            <ul id="chat-list" aria-label="Conversaciones guardadas"></ul>
           </aside>
           <div class="card chat-thread">
             <button id="show-chat-list" type="button" class="text-button">‹ Conversaciones</button>
@@ -126,14 +126,14 @@
               </div>
               <button id="cancel-chat" type="button" class="secondary" hidden>■ Cancelar respuesta</button>
               <small>Adjunta .md o .txt · Las respuestas de IA pueden contener errores.</small>
-              <small id="question-privacy">Chat temporal: no se guardan mensajes, adjuntos ni respuestas nuevos en la base de datos. Pueden desaparecer al recargar o tras 15 minutos de inactividad. Usa datos ficticios; el filtro no detecta todos los datos personales. La IA externa solo funciona si la autorizas en Privacidad. <a href="/privacy" target="_blank" rel="noopener noreferrer">Qué datos se conservan</a>.</small>
+              <small id="question-privacy">Tu historial de estudio se guarda solo en tu cuenta para continuar después. Se ocultan datos personales y secretos detectables antes de guardar y enviar mensajes; el filtro no reconoce todos los nombres, así que usa datos ficticios. Las notas personales están desactivadas. La IA externa necesita tu autorización en Privacidad. <a href="/privacy" target="_blank" rel="noopener noreferrer">Qué datos se conservan</a>.</small>
             </form>
           </div>
         </div>
         <dialog id="delete-chat-dialog" class="delete-chat-dialog" aria-labelledby="delete-chat-heading">
           <form method="dialog">
             <h2 id="delete-chat-heading">¿Eliminar esta conversación?</h2>
-            <p>Se retirarán los mensajes y guías temporales de esta conversación.</p>
+            <p>Se eliminarán los mensajes y guías guardadas de esta conversación, sin cambiar tu checklist.</p>
             <div class="row"><button value="cancel" class="secondary" autofocus>Cancelar</button><button value="delete" class="danger">Eliminar conversación</button></div>
           </form>
         </dialog>

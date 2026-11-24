@@ -179,7 +179,7 @@ async function openPrivacySettings() {
       try {
         state.privacy = await api('/api/auth/privacy', { externalAIAllowed: allow.checked, accepted: accepted.checked });
         if (!allow.checked && connection && connection.provider !== 'ollama') disconnect();
-        message.textContent = 'Preferencia guardada. El chat no escribe texto libre en la base de datos.';
+        message.textContent = 'Preferencia guardada. El historial se conserva por cuenta con filtrado de datos personales detectables.';
       } catch (error) { message.textContent = error.message; } finally { save.disabled = false; }
     };
     const verify = button(privacy.emailVerified ? 'Correo verificado' : 'Verificar mi correo', async () => {
@@ -188,13 +188,13 @@ async function openPrivacySettings() {
       catch (error) { message.textContent = error.message; } finally { verify.disabled = !privacy.mailReady || privacy.emailVerified; }
     }, 'secondary');
     verify.disabled = !privacy.mailReady || privacy.emailVerified;
-    const cleanup = box('form', '', el('h3', 'Eliminar textos históricos'),
-      el('p', 'Las conversaciones y notas antiguas no se borran automáticamente. Puedes retirarlas sin perder las casillas.'));
+    const cleanup = box('form', '', el('h3', 'Eliminar historial de chats'),
+      el('p', 'Elimina tus conversaciones guardadas y las notas de versiones anteriores, sin perder las casillas.'));
     const cleanupConfirm = field(cleanup, 'Escribe BORRAR para confirmar', 'confirmation', ''); cleanupConfirm.required = true;
-    cleanup.append(el('button', 'Eliminar textos anteriores', 'danger'));
+    cleanup.append(el('button', 'Eliminar historial', 'danger'));
     cleanup.onsubmit = async event => {
       event.preventDefault();
-      try { await api('/api/auth/erase-history', { confirmation: cleanupConfirm.value }); renderMessages([]); message.textContent = 'Textos anteriores eliminados. El progreso se conserva.'; }
+      try { await api('/api/auth/erase-history', { confirmation: cleanupConfirm.value }); renderMessages([]); message.textContent = 'Historial eliminado. El progreso se conserva.'; }
       catch (error) { message.textContent = error.message; }
     };
     const erase = box('form', '', el('h3', 'Eliminar mi cuenta'),
@@ -211,7 +211,7 @@ async function openPrivacySettings() {
     }
     dialog.replaceChildren(box('div', 'row between', el('h2', 'Privacidad y seguridad'), close),
       link('Leer el aviso de privacidad ↗', '/privacy'),
-      el('p', 'Los chats son temporales y las notas están desactivadas. El perfil y el progreso sí se conservan.'), form,
+      el('p', 'El historial de estudio se guarda solo en tu cuenta, con datos personales detectables ocultos. Las notas personales están desactivadas.'), form,
       el('h3', 'Correo y recuperación'), el('p', privacy.mailReady
         ? 'La recuperación utiliza solo el correo verificado de tu perfil.'
         : 'El servicio de correo aún no está configurado. La verificación y recuperación no están disponibles por ahora.'), verify, message, cleanup, erase);
@@ -954,7 +954,7 @@ function renderHistory() {
   const title = el('h2', 'Nota privada del día');
   title.id = 'history-detail-title';
   title.tabIndex = -1;
-  if (state.temporaryChat) {
+  if (state.notesDisabled) {
     title.textContent = 'Tu progreso, sin notas personales';
     $('history-detail').replaceChildren(title, el('p', 'Las notas están desactivadas para no guardar texto libre en la base de datos.'), openDay(detail.day.id));
     return;
@@ -1042,8 +1042,8 @@ $('show-chat-list').onclick = () => {
   $('start-chat').focus();
 };
 $('start-chat').onclick = () => {
-  if (state?.temporaryChat) {
-    $('new-chat-title').value = 'Conversación temporal';
+  if (state?.privateChatTitles) {
+    $('new-chat-title').value = 'Conversación de estudio';
     $('new-chat-form').requestSubmit();
     return;
   }
@@ -1106,7 +1106,7 @@ function updateConnectionForm() {
 }
 function chatControls() {
   const ready = Boolean(connection || state?.chatReady);
-  $('send').disabled = !ready || threadRevision === undefined || chatPending;
+  $('send').disabled = !ready || !state?.privacy?.accepted || threadRevision === undefined || chatPending;
   $('cancel-chat').hidden = !ollamaRequest;
   $('chat-wait').hidden = !chatPending || deletingChat;
   $('show-connection').toggleAttribute('data-connected', ready);
@@ -1303,10 +1303,10 @@ function renderChatList() {
       finally { save.disabled = false; }
     };
     const metadata = [context, chat.created && date.format(new Date(chat.created))].filter(Boolean).join(' · ');
-    return [box('li', 'chat-list-item', box('div', '', open, el('small', metadata)), ...(state.temporaryChat ? [] : [editor]))];
+    return [box('li', 'chat-list-item', box('div', '', open, el('small', metadata)), ...(state.privateChatTitles ? [] : [editor]))];
   });
   $('chat-list').replaceChildren(...(rows.length ? rows : [el('li',
-    query ? 'No hay conversaciones que coincidan con la búsqueda.' : 'Todavía no hay conversaciones temporales.')]));
+    query ? 'No hay conversaciones que coincidan con la búsqueda.' : 'Todavía no hay conversaciones guardadas.')]));
   if (!query && !rows.length && mobileMenu.matches) $('chat-list').append(box('li', 'chat-list-item',
     box('div', '', button('Abrir chat del día', () => void openChat({ id: selected, step: '' })))));
 }
@@ -1397,6 +1397,7 @@ async function sendChat(data, useConnection = true) {
   ollamaRequest = controller;
   chatControls();
   try {
+    if (!state.privacy?.accepted) throw new Error('Acepta el aviso actualizado en Mi cuenta → Privacidad y seguridad para conservar tu historial de estudio.');
     if (!data.guide) {
       const { assertAIQuestionSafe } = await import('/ai-privacy.mjs');
       assertAIQuestionSafe(data.message);
@@ -1405,7 +1406,7 @@ async function sendChat(data, useConnection = true) {
       const saved = await api('/api/chat', { ...data, lookup: true }, controller?.signal);
       if (saved) {
         if (sameChat(focus, data)) renderMessages(saved);
-        status('Guía temporal cargada.');
+        status('Guía guardada cargada.');
         return;
       }
       if (!active && !state.chatReady) {
@@ -1425,7 +1426,7 @@ async function sendChat(data, useConnection = true) {
       if (!data.guide) $('question').value = '';
     }
     if (!previousMessages.length) void refreshChats();
-    status('Conversación temporal. No se guarda en la base de datos.');
+    status('Conversación guardada con filtrado de datos personales detectables.');
   } catch (error) {
     if (controller?.signal.aborted) status('Respuesta cancelada.');
     else status(error.message, true);

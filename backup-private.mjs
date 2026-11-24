@@ -2,12 +2,14 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync } from 'node:fs';
 import { digest } from './auth.mjs';
+import { profilePrivateValues, redactAIText } from './ai-privacy.mjs';
 
 const header = Buffer.from('RIWI-PRIVATE-BACKUP-1\n');
 const included = new Set(['lessons', 'settings', 'sessions', 'session_modules', 'accounts', 'account_profiles',
-  'account_ticks', 'account_completions', 'account_daily', 'account_notice_dismissals', 'account_security', 'privacy_deletions']);
+  'account_ticks', 'account_completions', 'account_daily', 'account_notice_dismissals', 'account_security', 'privacy_deletions',
+  'account_messages', 'account_threads', 'legacy_thread_titles', 'chat_revisions']);
 const schemaOnly = new Set(['ticks', 'inbox', 'chat', 'completions', 'daily', 'messages', 'logins', 'auth_limits',
-  'account_history_notes', 'account_messages', 'chat_revisions', 'account_threads', 'legacy_thread_titles', 'account_action_tokens']);
+  'account_history_notes', 'account_action_tokens']);
 
 export function backupKey(value) {
   const key = Buffer.from(value || '', 'base64');
@@ -31,12 +33,16 @@ export function decryptBackup(bytes, key) {
 export async function snapshotDatabase(db) {
   return db.transaction(async () => {
     const definitions = (await db.execute("SELECT name,sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL")).rows;
+    const profiles = (await db.execute('SELECT a.id,a.document,p.full_name AS fullName,p.email,p.phone FROM accounts a LEFT JOIN account_profiles p ON p.account=a.id')).rows;
+    const privateValues = new Map(profiles.map(profile => [profile.id, profilePrivateValues(profile)]));
     const tables = [];
     for (const { name, sql } of definitions) {
       if (!included.has(name) && !schemaOnly.has(name)) continue;
       let rows = included.has(name) ? (await db.execute(`SELECT * FROM ${name}`)).rows.map(row => ({ ...row })) : [];
       if (name === 'settings') rows = rows.filter(row => /^(?:schema-v[23]|content-owner-account|(?:(?:[a-f0-9-]+):)?(?:active|step|notifications-paused|notification-schedule))$/.test(row.key));
       if (name === 'account_security') rows = rows.map(row => ({ ...row, external_ai: 0, privacy_version: '', consent_at: 0 }));
+      if (name === 'account_messages') rows = rows.map(row => ({ ...row, content: redactAIText(row.content, privateValues.get(row.account) || []) }));
+      if (['account_threads', 'legacy_thread_titles'].includes(name)) rows = rows.map(row => ({ ...row, title: 'Conversación de estudio' }));
       tables.push({ name, sql, rows });
     }
     const indexes = (await db.execute("SELECT tbl_name,sql FROM sqlite_master WHERE type='index' AND sql IS NOT NULL")).rows
