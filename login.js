@@ -79,6 +79,8 @@ toggle.onclick = () => {
   get('password-hint').hidden = get('confirmation-field').hidden = !register;
   confirmation.required = register;
   get('registration-profile').hidden = get('registration-profile').disabled = !register;
+  get('privacy-acceptance').hidden = !register;
+  get('privacy-accepted').required = register;
   setPasswordVisible(false);
   validatePassword();
 };
@@ -86,6 +88,7 @@ form.onsubmit = async event => {
   event.preventDefault();
   if (form.getAttribute('aria-busy') === 'true') return;
   const values = Object.fromEntries(new FormData(form));
+  if (register) values.privacyAccepted = get('privacy-accepted').checked;
   submit.disabled = toggle.disabled = true;
   form.setAttribute('aria-busy', 'true');
   const buttonLabel = submit.textContent;

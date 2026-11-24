@@ -100,7 +100,17 @@ $('edit-profile').onclick = async () => {
     form.append(el('p', profile.nameLocked ? 'Tu nombre ya está registrado y no se puede modificar.' : 'Puedes guardar tu nombre una sola vez. Revísalo antes de confirmar.', 'muted'));
     const email = field(form, 'Correo personal', 'email', profile.email, { type: 'email' });
     email.maxLength = 254;
-    const phone = field(form, 'Celular', 'phone', profile.phone, { type: 'tel' });
+    let savedEmail = profile.email;
+    const currentPassword = field(form, 'Contraseña actual (para cambiar el correo)', 'currentPassword', '', { type: 'password' });
+    currentPassword.required = false;
+    currentPassword.closest('label').hidden = true;
+    email.oninput = () => {
+      const changed = email.value.trim().toLowerCase() !== savedEmail;
+      currentPassword.required = changed;
+      currentPassword.closest('label').hidden = !changed;
+    };
+    const phone = field(form, 'Celular (opcional; puedes borrarlo)', 'phone', profile.phone, { type: 'tel' });
+    phone.required = false;
     phone.minLength = 7;
     phone.maxLength = 24;
     const clan = field(form, 'Clan', 'clan', profile.clan, { choices: [['', 'Selecciona tu clan'],
@@ -117,7 +127,11 @@ $('edit-profile').onclick = async () => {
       message.textContent = 'Guardando…';
       message.removeAttribute('data-error');
       try {
-        const saved = await api('/api/auth/profile', { fullName: fullName.value, email: email.value, phone: phone.value, clan: clan.value });
+        const saved = await api('/api/auth/profile', { fullName: fullName.value, email: email.value, phone: phone.value, clan: clan.value, currentPassword: currentPassword.value });
+        savedEmail = saved.email;
+        currentPassword.value = '';
+        currentPassword.required = false;
+        currentPassword.closest('label').hidden = true;
         fullName.value = saved.fullName;
         fullName.readOnly = saved.nameLocked;
         state.profile = { fullName: saved.fullName, clan: saved.clan };
@@ -148,6 +162,63 @@ $('logout').onclick = async () => {
     status(error.message, true);
   }
 };
+
+async function openPrivacySettings() {
+  const dialog = $('privacy-dialog');
+  try {
+    const privacy = await api('/api/auth/privacy');
+    const close = button('Cerrar', () => dialog.close(), 'secondary');
+    const message = el('p', '', 'status'); message.setAttribute('role', 'status');
+    const allow = el('input'); allow.type = 'checkbox'; allow.checked = privacy.externalAIAllowed;
+    const accepted = el('input'); accepted.type = 'checkbox'; accepted.checked = privacy.accepted; accepted.required = true;
+    const form = box('form', '', box('label', 'check', accepted, el('span', 'He leído el aviso y autorizo los datos necesarios de mi cuenta.')),
+      box('label', 'check', allow, el('span', 'Permitir proveedores externos de IA. Si lo desmarco, solo usaré guías o modelos locales.')),
+      el('button', 'Guardar privacidad'));
+    form.onsubmit = async event => {
+      event.preventDefault(); const save = form.querySelector('button'); save.disabled = true;
+      try {
+        state.privacy = await api('/api/auth/privacy', { externalAIAllowed: allow.checked, accepted: accepted.checked });
+        if (!allow.checked && connection && connection.provider !== 'ollama') disconnect();
+        message.textContent = 'Preferencia guardada. El chat no escribe texto libre en la base de datos.';
+      } catch (error) { message.textContent = error.message; } finally { save.disabled = false; }
+    };
+    const verify = button(privacy.emailVerified ? 'Correo verificado' : 'Verificar mi correo', async () => {
+      verify.disabled = true;
+      try { await api('/api/auth/verify-email', {}); message.textContent = 'Revisa el correo guardado en tu perfil. El enlace vence en 15 minutos.'; }
+      catch (error) { message.textContent = error.message; } finally { verify.disabled = !privacy.mailReady || privacy.emailVerified; }
+    }, 'secondary');
+    verify.disabled = !privacy.mailReady || privacy.emailVerified;
+    const cleanup = box('form', '', el('h3', 'Eliminar textos históricos'),
+      el('p', 'Las conversaciones y notas antiguas no se borran automáticamente. Puedes retirarlas sin perder las casillas.'));
+    const cleanupConfirm = field(cleanup, 'Escribe BORRAR para confirmar', 'confirmation', ''); cleanupConfirm.required = true;
+    cleanup.append(el('button', 'Eliminar textos anteriores', 'danger'));
+    cleanup.onsubmit = async event => {
+      event.preventDefault();
+      try { await api('/api/auth/erase-history', { confirmation: cleanupConfirm.value }); renderMessages([]); message.textContent = 'Textos anteriores eliminados. El progreso se conserva.'; }
+      catch (error) { message.textContent = error.message; }
+    };
+    const erase = box('form', '', el('h3', 'Eliminar mi cuenta'),
+      el('p', state.canEdit ? 'Transfiere primero la administración para poder eliminar esta cuenta.' : 'Retira tu perfil, acceso y progreso de las tablas activas. Las fichas compartidas y las otras cuentas se conservan.'));
+    if (!state.canEdit) {
+      const password = field(erase, 'Contraseña actual', 'password', '', { type: 'password' }); password.required = true;
+      const confirm = field(erase, 'Escribe ELIMINAR', 'confirmation', ''); confirm.required = true;
+      erase.append(el('button', 'Eliminar mi cuenta', 'danger'));
+      erase.onsubmit = async event => {
+        event.preventDefault();
+        try { await api('/api/auth/delete-account', { password: password.value, confirmation: confirm.value }); disconnect(); location.replace('/login'); }
+        catch (error) { password.value = ''; message.textContent = error.message; }
+      };
+    }
+    dialog.replaceChildren(box('div', 'row between', el('h2', 'Privacidad y seguridad'), close),
+      link('Leer el aviso de privacidad ↗', '/privacy'),
+      el('p', 'Los chats son temporales y las notas están desactivadas. El perfil y el progreso sí se conservan.'), form,
+      el('h3', 'Correo y recuperación'), el('p', privacy.mailReady
+        ? 'La recuperación utiliza solo el correo verificado de tu perfil.'
+        : 'El servicio de correo aún no está configurado. La verificación y recuperación no están disponibles por ahora.'), verify, message, cleanup, erase);
+    dialog.showModal();
+  } catch (error) { status(error.message, true); }
+}
+$('privacy-settings').onclick = openPrivacySettings;
 const opened = new Map();
 const moduleName = id => state.modules.find(item => item.id === id)?.name || id;
 const lesson = id => state.lessons.find(day => day.id === id);
@@ -883,6 +954,11 @@ function renderHistory() {
   const title = el('h2', 'Nota privada del día');
   title.id = 'history-detail-title';
   title.tabIndex = -1;
+  if (state.temporaryChat) {
+    title.textContent = 'Tu progreso, sin notas personales';
+    $('history-detail').replaceChildren(title, el('p', 'Las notas están desactivadas para no guardar texto libre en la base de datos.'), openDay(detail.day.id));
+    return;
+  }
   const editor = historyNote(detail.day, detail.note);
   editor.open = !detail.note || openNotes.has(detail.day.id);
   $('history-detail').replaceChildren(el('span', 'Solo para ti', 'pill'), title, el('p', detail.day.title, 'muted'),
@@ -966,6 +1042,11 @@ $('show-chat-list').onclick = () => {
   $('start-chat').focus();
 };
 $('start-chat').onclick = () => {
+  if (state?.temporaryChat) {
+    $('new-chat-title').value = 'Conversación temporal';
+    $('new-chat-form').requestSubmit();
+    return;
+  }
   const open = $('new-chat-form').hidden;
   $('new-chat-form').hidden = !open;
   $('start-chat').setAttribute('aria-expanded', String(open));
@@ -1115,6 +1196,10 @@ window.addEventListener('pagehide', () => {
 $('model-form').onsubmit = async event => {
   event.preventDefault();
   const provider = $('provider').value;
+  if (provider !== 'ollama' && !state.privacy?.externalAIAllowed) {
+    connectionStatus('El modo sin proveedores externos está activo. Puedes autorizar su uso en Mi cuenta → Privacidad y seguridad.', true);
+    return;
+  }
   const model = $('model').value.trim();
   const project = $('project').value.trim();
   const credential = $('credential').value.trim();
@@ -1218,10 +1303,10 @@ function renderChatList() {
       finally { save.disabled = false; }
     };
     const metadata = [context, chat.created && date.format(new Date(chat.created))].filter(Boolean).join(' · ');
-    return [box('li', 'chat-list-item', box('div', '', open, el('small', metadata)), editor)];
+    return [box('li', 'chat-list-item', box('div', '', open, el('small', metadata)), ...(state.temporaryChat ? [] : [editor]))];
   });
   $('chat-list').replaceChildren(...(rows.length ? rows : [el('li',
-    query ? 'No hay conversaciones que coincidan con la búsqueda.' : 'Todavía no hay conversaciones guardadas.')]));
+    query ? 'No hay conversaciones que coincidan con la búsqueda.' : 'Todavía no hay conversaciones temporales.')]));
   if (!query && !rows.length && mobileMenu.matches) $('chat-list').append(box('li', 'chat-list-item',
     box('div', '', button('Abrir chat del día', () => void openChat({ id: selected, step: '' })))));
 }
@@ -1320,7 +1405,7 @@ async function sendChat(data, useConnection = true) {
       const saved = await api('/api/chat', { ...data, lookup: true }, controller?.signal);
       if (saved) {
         if (sameChat(focus, data)) renderMessages(saved);
-        status('Guía guardada cargada.');
+        status('Guía temporal cargada.');
         return;
       }
       if (!active && !state.chatReady) {
@@ -1340,7 +1425,7 @@ async function sendChat(data, useConnection = true) {
       if (!data.guide) $('question').value = '';
     }
     if (!previousMessages.length) void refreshChats();
-    status('Conversación guardada.');
+    status('Conversación temporal. No se guarda en la base de datos.');
   } catch (error) {
     if (controller?.signal.aborted) status('Respuesta cancelada.');
     else status(error.message, true);

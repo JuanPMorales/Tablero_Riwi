@@ -12,8 +12,8 @@ export function validateProfile(payload) {
   const email = typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '';
   const phone = typeof payload.phone === 'string' ? payload.phone.trim() : '';
   if (fullName.length < 3 || fullName.length > 160 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254
-    || !/^\+?[0-9 ()-]{7,24}$/.test(phone) || phone.replace(/\D/g, '').length < 7 || !CLANS.includes(payload.clan)) {
-    throw Object.assign(new Error('Completa tu nombre, correo personal, celular y clan válido.'), { status: 400 });
+    || (phone && (!/^\+?[0-9 ()-]{7,24}$/.test(phone) || phone.replace(/\D/g, '').length < 7)) || !CLANS.includes(payload.clan)) {
+    throw Object.assign(new Error('Completa tu nombre, correo y clan. Si incluyes celular, debe ser válido.'), { status: 400 });
   }
   return { fullName, email, phone, clan: payload.clan };
 }
@@ -106,5 +106,12 @@ export function accountAuth(db, { secure }) {
     });
     setCookie(res, value, lifetime);
   }
-  return { session, logout, authenticate };
+  async function confirmPassword(account, password) {
+    if (typeof password !== 'string' || password.length < 1 || password.length > 128) fail(401, 'Confirma tu contraseña actual para cambiar el correo.');
+    await limit([[`sensitive:${digest(account).toString('hex')}`, 8]]);
+    const row = await get('SELECT salt,hash FROM accounts WHERE id=?', [account]);
+    const hash = await derive(password, row?.salt || '', 64, options);
+    if (!row || !timingSafeEqual(hash, Buffer.from(row.hash, 'hex'))) fail(401, 'No se pudo confirmar la contraseña.');
+  }
+  return { session, logout, authenticate, confirmPassword };
 }

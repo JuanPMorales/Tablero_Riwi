@@ -30,7 +30,7 @@
           <fieldset id="registration-profile" hidden disabled class="registration-profile">
             <div class="auth-field"><label for="full-name">Nombre completo</label><input id="full-name" name="fullName" autocomplete="name" minlength="3" maxlength="160" required></div>
             <div class="auth-field"><label for="email">Correo personal</label><input id="email" name="email" type="email" autocomplete="email" maxlength="254" required></div>
-            <div class="auth-field"><label for="phone">Celular</label><input id="phone" name="phone" type="tel" autocomplete="tel" minlength="7" maxlength="24" required></div>
+            <div class="auth-field"><label for="phone">Celular (opcional)</label><input id="phone" name="phone" type="tel" autocomplete="tel" minlength="7" maxlength="24"></div>
             <div class="auth-field"><label for="clan">Clan</label><select id="clan" name="clan" required><option value="">Selecciona tu clan</option><option>Gosling</option><option>Nakamoto</option><option>Ritchie</option><option>Tesla</option><option>Turing</option><option>Ubuntu</option><option>Van Rossum</option></select></div>
           </fieldset>
           <div class="auth-field">
@@ -58,9 +58,11 @@
             <p id="confirmation-error" class="field-error" hidden>Las contraseñas no coinciden.</p>
           </div>
           <div id="login-status" class="status" role="status" hidden></div>
+          <label id="privacy-acceptance" class="check" hidden><input id="privacy-accepted" type="checkbox"><span>He leído el <a href="/privacy" target="_blank" rel="noopener noreferrer">aviso de privacidad</a> y autorizo los datos necesarios de mi cuenta. La IA externa está desactivada por defecto.</span></label>
           <button id="submit-account" type="submit">Iniciar sesión&nbsp; →</button>
         </form>
         <p class="auth-switch"><span id="toggle-account-label">¿Primera vez por aquí?</span><button id="toggle-account" type="button">Crear cuenta</button></p>
+        <p><a href="/access">Olvidé mi contraseña</a> · <a href="/privacy">Privacidad y datos personales</a></p>
         <section class="auth-mobile-card"><h3>Tu ritmo. Tu camino.</h3><p>Organiza tus actividades y resuelve tus dudas con Chat Riwi.</p></section>
       </div>
     </section>

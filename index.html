@@ -44,6 +44,7 @@
           <summary id="account-title">Mi cuenta</summary>
           <div class="account-actions">
             <button id="edit-profile" class="secondary" type="button">Mi perfil</button>
+            <button id="privacy-settings" class="secondary" type="button">Privacidad y seguridad</button>
             <button id="logout" class="secondary" type="button">Cerrar sesión</button>
           </div>
         </details>
@@ -58,6 +59,7 @@
       <p id="status" class="status" role="status">Cargando tu tablero…</p>
       <div id="sources"></div>
       <dialog id="profile-dialog" class="profile-dialog" aria-label="Mi perfil"></dialog>
+      <dialog id="privacy-dialog" class="profile-dialog" aria-label="Privacidad y seguridad"></dialog>
       <section id="check" aria-label="Hoy / Checklist" hidden></section>
       <section id="calendar" aria-label="Calendario Ritchie" hidden></section>
       <section id="inbox" class="inbox-popover" aria-label="Buzón de notificaciones" hidden></section>
@@ -103,8 +105,8 @@
               <button type="submit">Crear conversación</button>
             </form>
             <input id="chat-search" type="search" aria-label="Buscar conversaciones" placeholder="Buscar conversaciones">
-            <h2 class="eyebrow">Conversaciones guardadas</h2>
-            <ul id="chat-list" aria-label="Conversaciones guardadas"></ul>
+            <h2 class="eyebrow">Conversaciones temporales</h2>
+            <ul id="chat-list" aria-label="Conversaciones temporales"></ul>
           </aside>
           <div class="card chat-thread">
             <button id="show-chat-list" type="button" class="text-button">‹ Conversaciones</button>
@@ -124,14 +126,14 @@
               </div>
               <button id="cancel-chat" type="button" class="secondary" hidden>■ Cancelar respuesta</button>
               <small>Adjunta .md o .txt · Las respuestas de IA pueden contener errores.</small>
-              <small id="question-privacy">Usa datos ficticios. No pegues nombres reales, documentos, correos, teléfonos, claves ni información de salud, tampoco en archivos. El filtro automático puede no detectar todos los datos personales. Las preguntas y respuestas filtradas se guardan en el historial de tu cuenta; puedes eliminar la conversación desde el chat. Al conectar una IA externa, el proveedor recibe el contenido filtrado y aplica sus propias políticas de conservación.</small>
+              <small id="question-privacy">Chat temporal: no se guardan mensajes, adjuntos ni respuestas nuevos en la base de datos. Pueden desaparecer al recargar o tras 15 minutos de inactividad. Usa datos ficticios; el filtro no detecta todos los datos personales. La IA externa solo funciona si la autorizas en Privacidad. <a href="/privacy" target="_blank" rel="noopener noreferrer">Qué datos se conservan</a>.</small>
             </form>
           </div>
         </div>
         <dialog id="delete-chat-dialog" class="delete-chat-dialog" aria-labelledby="delete-chat-heading">
           <form method="dialog">
             <h2 id="delete-chat-heading">¿Eliminar esta conversación?</h2>
-            <p>Se eliminarán sus mensajes y guías guardadas.</p>
+            <p>Se retirarán los mensajes y guías temporales de esta conversación.</p>
             <div class="row"><button value="cancel" class="secondary" autofocus>Cancelar</button><button value="delete" class="danger">Eliminar conversación</button></div>
           </form>
         </dialog>

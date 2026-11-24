@@ -4,12 +4,17 @@
   "buildCommand": "node -e \"const fs = require('node:fs'); fs.mkdirSync('vercel-static', { recursive: true }); fs.writeFileSync('vercel-static/robots.txt', 'User-agent: *\\nDisallow: /\\n')\"",
   "outputDirectory": "vercel-static",
   "functions": {
-    "api/*.js": { "includeFiles": "{*.{html,js,mjs,css,svg,woff2},lessons.json,node_modules/{markdown-it,@highlightjs/cdn-assets,skulpt}/**/{*.umd.min.js,highlight.min.js,skulpt.min.js,skulpt-stdlib.js}}", "excludeFiles": "{*.test.mjs,.codex/**,data/**,backups/**,coverage/**,test-results/**,.env*,*.sqlite*,*.db,*.db-*,*.log}", "maxDuration": 30 }
+    "api/*.js": { "includeFiles": "{*.{html,js,mjs,css,svg,woff2},lessons.json,node_modules/{markdown-it,@highlightjs/cdn-assets,skulpt}/**/{*.umd.min.js,highlight.min.js,skulpt.min.js,skulpt-stdlib.js}}", "excludeFiles": "{*.test.mjs,backup-private.mjs,scripts/**,.codex/**,data/**,backups/**,coverage/**,test-results/**,.env*,*.sqlite*,*.db,*.db-*,*.log}", "maxDuration": 30 }
   },
   "rewrites": [
     { "source": "/", "destination": "/api/tablero?path=/" },
     { "source": "/login", "destination": "/api/tablero?path=/login" },
     { "source": "/login.js", "destination": "/api/tablero?path=/login.js" },
+    { "source": "/privacy", "destination": "/api/tablero?path=/privacy" },
+    { "source": "/privacy.js", "destination": "/api/tablero?path=/privacy.js" },
+    { "source": "/access", "destination": "/api/tablero?path=/access" },
+    { "source": "/access.js", "destination": "/api/tablero?path=/access.js" },
+    { "source": "/api/privacy", "destination": "/api/tablero?path=/api/privacy" },
     { "source": "/api/auth/:action", "destination": "/api/tablero?path=/api/auth/:action" },
     { "source": "/google-callback", "destination": "/api/tablero?path=/google-callback" },
     { "source": "/google-callback.js", "destination": "/api/tablero?path=/google-callback.js" },
