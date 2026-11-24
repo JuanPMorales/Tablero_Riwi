@@ -1,3 +1,5 @@
+import { redactAIValue, redactAIText } from './ai-privacy.mjs';
+
 // Include the whole current day once, with numeric pointers to the selected exercise.
 export function lessonContext(lesson, { track, module, step = '', stepsDone = 0 }) {
   const [questIndex, stepIndex] = step.split('-').map(Number);
@@ -18,9 +20,11 @@ export function lessonContext(lesson, { track, module, step = '', stepsDone = 0 
 }
 
 // Bound repeated history without cutting code or editing the saved conversation.
-export function chatTurns(context, history, prompt) {
-  const serialized = JSON.stringify(context);
-  const recent = history.slice(-6);
+export function chatTurns(context, history, prompt, privateValues = []) {
+  const serialized = JSON.stringify(redactAIValue(context, privateValues));
+  prompt = redactAIText(prompt, privateValues);
+  const recent = history.slice(-6).map(({ role, content }) => ({ role,
+    content: typeof content === 'string' ? redactAIText(content, privateValues) : content }));
   const kept = [];
   // A larger day leaves less room for repeated conversation, never less day content.
   // Character budget is an approximation, not the provider's token limit.

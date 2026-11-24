@@ -709,6 +709,41 @@ test('perfil privado valida cambios de nombre y conserva contacto por cuenta', a
   await call('/api/auth/profile', savedProfile);
 });
 
+test('la solicitud real del tutor filtra el perfil y el historial antes de salir y al guardar la respuesta', async () => {
+  const profile = (await call('/api/auth/profile')).json;
+  const originalProfile = structuredClone(profile);
+  const database = await openStore(process.env.RIWI_DB_PATH);
+  const originalFetch = globalThis.fetch;
+  const credential = 'credencial-ficticia-privacidad';
+  try {
+    const own = database.forAccount('owner');
+    await own.saveChat(1, '0-0', `Correo anterior: ${profile.email}`, `Documento: ${profile.document}`,
+      await own.chatRevision(1, '0-0'));
+    let called = false;
+    globalThis.fetch = async (url, options) => {
+      assert.equal(url, 'https://api.groq.com/openai/v1/chat/completions');
+      for (const value of [profile.document, profile.email, profile.phone, profile.fullName, credential]) {
+        assert.ok(!options.body.includes(value));
+      }
+      assert.equal(options.headers.Authorization, `Bearer ${credential}`);
+      called = true;
+      return Response.json({ choices: [{ message: { content: `Hola ${profile.fullName}, ${profile.email}, ${profile.document}` } }] });
+    };
+    const result = await call('/api/chat', { id: 1, step: '0-0',
+      message: `${profile.fullName}, ${profile.email}, ${profile.document}, ${profile.phone}: ayúdame`,
+      connection: { provider: 'groq', model: 'openai/gpt-oss-20b', credential, allowCharges: true } });
+    assert.equal(result.status, 200);
+    assert.equal(called, true);
+    for (const value of [profile.document, profile.email, profile.phone, profile.fullName]) {
+      assert.ok(!result.json.slice(-2).some(message => message.content.includes(value)));
+    }
+    assert.deepEqual((await call('/api/auth/profile')).json, originalProfile);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
 test.after(async () => {
   await closeDatabase();
   for (const file of ['schedule.sqlite', 'beta.sqlite', 'handlers.sqlite']) rmSync(join(directory, file), { force: true });

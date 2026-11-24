@@ -21,6 +21,7 @@
     { "source": "/chat-blocks.js", "destination": "/api/tablero?path=/chat-blocks.js" },
     { "source": "/tutor-rules.mjs", "destination": "/api/tablero?path=/tutor-rules.mjs" },
     { "source": "/chat-context.mjs", "destination": "/api/tablero?path=/chat-context.mjs" },
+    { "source": "/ai-privacy.mjs", "destination": "/api/tablero?path=/ai-privacy.mjs" },
     { "source": "/chat-markdown.js", "destination": "/api/tablero?path=/chat-markdown.js" },
     { "source": "/chat-highlight.js", "destination": "/api/tablero?path=/chat-highlight.js" },
     { "source": "/chat-runner.html", "destination": "/api/tablero?path=/chat-runner.html" },

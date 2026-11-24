@@ -1,3 +1,5 @@
+import { redactAIText } from './ai-privacy.mjs';
+
 const examples = [
   ['Crea dos ventas pequeñas y ejecuta el archivo de exploración antes de cargar la muestra completa.',
     "const ventas = [{ producto: 'Huila' }, { producto: 'Nariño' }];\nconsole.table(ventas);",
@@ -60,12 +62,13 @@ export async function localAnswer(model, turns, tutor, isGuide = false, signal) 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model, stream: false, think: false, options: { num_predict: isGuide ? 600 : 320, num_ctx: 8192 },
-      messages: [{ role: 'system', content: tutor }, ...turns],
+      messages: [{ role: 'system', content: redactAIText(tutor) },
+        ...turns.map(({ role, content }) => ({ role, content: redactAIText(content) }))],
     }),
   });
   if (!result.ok) throw new Error('Ollama no pudo responder.');
   const answer = (await result.json()).message?.content?.trim();
   if (!answer) throw new Error('El modelo local devolvió una respuesta vacía.');
-  return answer;
+  return redactAIText(answer);
 }
 

@@ -1153,12 +1153,14 @@ async function askLocal(modelConnection, data, history, signal) {
   const base = `http://127.0.0.1:${port}`;
   const day = lesson(data.id);
   const { chatTurns, lessonContext } = await import('/chat-context.mjs');
+  const { profilePrivateValues, redactAIText } = await import('/ai-privacy.mjs');
+  const privateValues = profilePrivateValues(await api('/api/auth/profile'));
   const context = lessonContext(day, { track: state.track, module: moduleName(day.module),
     step: data.step, stepsDone: completed(day).count });
   const prompt = data.guide ? 'Guíame en este paso con un ejemplo y una prueba.' : data.message;
   const { tutorRules } = await import('/tutor-rules.mjs');
-  const messages = [{ role: 'system', content: tutorRules },
-    ...chatTurns(context, history, prompt)];
+  const messages = [{ role: 'system', content: redactAIText(tutorRules, privateValues) },
+    ...chatTurns(context, history, prompt, privateValues)];
   const ollama = provider === 'ollama';
   if (ollama) await checkOllama(model, signal);
   try {
@@ -1170,7 +1172,7 @@ async function askLocal(modelConnection, data, history, signal) {
     const result = await response.json();
     const answer = (ollama ? result.message?.content : result.choices?.[0]?.message?.content)?.trim();
     if (!answer) throw new Error('El modelo local devolvió una respuesta vacía.');
-    return answer.slice(0, 16000);
+    return redactAIText(answer, privateValues).slice(0, 16000);
   } catch (error) {
     if (error.name === 'TimeoutError') throw new Error('El modelo local tardó demasiado en responder. Intenta con una pregunta más corta.');
     if (error instanceof TypeError) throw new Error('Se perdió el acceso al servicio local. Revisa que esté abierto y que el navegador permita el acceso local.');

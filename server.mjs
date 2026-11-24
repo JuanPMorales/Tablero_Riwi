@@ -9,6 +9,7 @@ import { accountAuth, digest } from './auth.mjs';
 import { chatTurns, cloudAnswer } from './providers.mjs';
 import { lessonContext } from './chat-context.mjs';
 import { tutorPolicy } from './tutor-policy.mjs';
+import { profilePrivateValues, redactAIText } from './ai-privacy.mjs';
 
 const { RIWI_ORIGIN, RIWI_MOODLE_TOKEN, CRON_SECRET, RIWI_OWNER_ACCOUNT_ID, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
 const googleOAuth = GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET ? GOOGLE_CLIENT_ID : null;
@@ -47,6 +48,7 @@ const assets = new Map([
   ['/ui.js', ['ui.js', 'application/javascript']], ['/login', ['login.html', 'text/html']],
   ['/chat-blocks.js', ['chat-blocks.js', 'application/javascript']],
   ['/chat-context.mjs', ['chat-context.mjs', 'application/javascript']],
+  ['/ai-privacy.mjs', ['ai-privacy.mjs', 'application/javascript']],
   ['/tutor-rules.mjs', ['tutor-rules.mjs', 'application/javascript']],
   ['/chat-markdown.js', ['node_modules/markdown-it/dist/browser/markdown-it.umd.min.js', 'application/javascript']],
   ['/chat-highlight.js', ['node_modules/@highlightjs/cdn-assets/highlight.min.js', 'application/javascript']],
@@ -370,11 +372,17 @@ async function request(req, res, pathname) {
     const thread = account + '/' + lesson.id + '/' + threadStep;
     if (busy.has(thread) || (RIWI_OLLAMA_MODEL && busy.size)) throw fault(409, 'Ya hay una respuesta en curso.');
     busy.add(thread);
-    let prompt = guide ? guidePrompt : p.message.trim();
-    if (typeof p.connection?.credential === 'string' && p.connection.credential) {
-      prompt = prompt.replaceAll(p.connection.credential, '[credencial omitida]');
-    }
     try {
+      const privateValues = profilePrivateValues(await store.readProfile());
+      privateValues.push(...Object.entries(process.env)
+        .filter(([key, value]) => /TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY/.test(key) && value?.length >= 8)
+        .map(([, value]) => value));
+      if (typeof p.connection?.credential === 'string') privateValues.push(p.connection.credential);
+      let prompt = guide ? guidePrompt : p.message.trim();
+      if (typeof p.connection?.credential === 'string' && p.connection.credential) {
+        prompt = prompt.replaceAll(p.connection.credential, '[credencial omitida]');
+      }
+      prompt = redactAIText(prompt, privateValues);
       let answer;
       if (p.localAnswer !== undefined) {
         if (p.connection || !text(p.localAnswer, 16000)) throw fault(400, 'La respuesta local no es válida.');
@@ -388,12 +396,12 @@ async function request(req, res, pathname) {
           if (typeof p.connection !== 'object' || p.connection.allowCharges !== true) {
             throw fault(400, 'Confirma el uso de la cuota de tu proveedor antes de enviar la consulta.');
           }
-          answer = await cloudAnswer(p.connection, chatTurns(context, history, prompt));
+          answer = await cloudAnswer(p.connection, chatTurns(context, history, prompt, privateValues), privateValues);
         } else {
           const controller = new AbortController();
           res.once?.('close', () => controller.abort());
           try {
-            answer = await localAnswer(RIWI_OLLAMA_MODEL, chatTurns(context, history, prompt), tutorPolicy, Boolean(guide), controller.signal);
+            answer = await localAnswer(RIWI_OLLAMA_MODEL, chatTurns(context, history, prompt, privateValues), redactAIText(tutorPolicy, privateValues), Boolean(guide), controller.signal);
           } catch {
             if (controller.signal.aborted) return;
             if (!guide) throw fault(503, 'El modelo local no respondió. Revisa Ollama e inténtalo de nuevo.');
@@ -402,6 +410,7 @@ async function request(req, res, pathname) {
       }
       const usedBasic = !answer;
       answer = usedBasic ? 'Guía del tablero\n\n' + offlineGuide(lesson, step) : 'Respuesta de IA\n\n' + answer;
+      answer = redactAIText(answer, privateValues);
       const saved = guide ? await store.saveGuide(lesson.id, threadStep, usedBasic, answer, revision)
         : await store.saveChat(lesson.id, threadStep, prompt, answer, revision);
       if (!saved) throw deleted();

@@ -119,11 +119,12 @@
               <label for="question" class="sr-only">Tu pregunta</label>
               <div class="composer"><input id="chat-file" type="file" hidden>
                 <button id="attach-chat-file" type="button" class="text-button" aria-label="Adjuntar archivo de texto" title="Adjuntar archivo de texto">+</button>
-                <textarea id="question" maxlength="4000" required placeholder="Escribe tu pregunta…"></textarea>
+                <textarea id="question" maxlength="4000" required aria-describedby="question-privacy" placeholder="Escribe tu pregunta con datos ficticios…"></textarea>
                 <button id="send" aria-label="Enviar pregunta" title="Enviar pregunta" disabled>↑</button>
               </div>
               <button id="cancel-chat" type="button" class="secondary" hidden>■ Cancelar respuesta</button>
               <small>Adjunta .md o .txt · Las respuestas de IA pueden contener errores.</small>
+              <small id="question-privacy">Usa datos ficticios. No pegues nombres reales, documentos, correos, teléfonos ni claves, tampoco en archivos. El filtro automático puede no detectar todos los datos personales.</small>
             </form>
           </div>
         </div>
@@ -173,7 +174,7 @@
             <label id="usage-field" class="check"><input type="checkbox" id="usage-consent"> <span>Autorizo enviar al proveedor el contexto y el historial de este chat. Se usará mi cuota o saldo y pueden generarse cargos.</span></label>
             <p id="connection-status" role="status" class="status"></p>
             <ol id="provider-steps"></ol>
-            <p class="provider-privacy">Tu clave se utiliza durante esta sesión. Se descarta al desconectar, recargar o cerrar sesión.</p>
+            <p class="provider-privacy">Tu perfil no se envía al modelo. Se filtran datos personales y credenciales detectables del texto, pero la detección no es infalible: usa datos ficticios y no pegues información real de personas. Tu clave autentica la conexión con el proveedor durante esta sesión; se descarta al desconectar, recargar o cerrar sesión.</p>
             <div class="row provider-actions"><button id="connect-model" type="submit">Comprobar conexión →</button><button id="close-connection" type="button" class="secondary">Cancelar</button><button id="disconnect-model" type="button" class="secondary" hidden>Desconectar</button></div>
             </form>
           </div>

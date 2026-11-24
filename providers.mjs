@@ -1,18 +1,21 @@
 import { tutorPolicy } from './tutor-policy.mjs';
+import { redactAIText } from './ai-privacy.mjs';
 export { chatTurns } from './chat-context.mjs';
 
 export function providerFault(status, message) {
   return Object.assign(new Error(message), { status });
 }
 
-export function cloudRequest(connection, turns) {
-  const tutor = tutorPolicy;
+export function cloudRequest(connection, turns, privateValues = []) {
   const { provider, model, project, credential } = connection;
   if (typeof credential !== 'string' || !/^[\x21-\x7e]{12,4096}$/.test(credential)
     || typeof model !== 'string' || model.length > 120 || !/^[\w.:-]+(?:\/[\w.:-]+)?$/.test(model)) {
     throw providerFault(400, 'Revisa el modelo y la credencial del proveedor.');
   }
   const bearer = { Authorization: `Bearer ${credential}` };
+  const clean = value => redactAIText(value.replaceAll(credential, '[credencial omitida]'), privateValues);
+  const tutor = clean(tutorPolicy);
+  turns = turns.map(({ role, content }) => ({ role, content: clean(content) }));
   if (provider === 'groq') return {
     url: 'https://api.groq.com/openai/v1/chat/completions', headers: bearer,
     body: { model, max_completion_tokens: 1200, messages: [{ role: 'system', content: tutor }, ...turns] },
@@ -43,8 +46,8 @@ export function cloudRequest(connection, turns) {
   };
 }
 
-export async function cloudAnswer(connection, turns) {
-  const { url, headers, body, read } = cloudRequest(connection, turns);
+export async function cloudAnswer(connection, turns, privateValues = []) {
+  const { url, headers, body, read } = cloudRequest(connection, turns, privateValues);
   try {
     const response = await fetch(url, {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(24000),
@@ -62,7 +65,7 @@ export async function cloudAnswer(connection, turns) {
     }
     const answer = read(await response.json())?.trim();
     if (!answer) throw providerFault(502, 'El modelo devolvió una respuesta vacía.');
-    return answer.replaceAll(connection.credential, '[credencial omitida]').slice(0, 16000);
+    return redactAIText(answer.replaceAll(connection.credential, '[credencial omitida]'), privateValues).slice(0, 16000);
   } catch (error) {
     if (error.status === 502) throw error;
     throw providerFault(502, 'No se pudo consultar al proveedor a tiempo. Intenta de nuevo.');
