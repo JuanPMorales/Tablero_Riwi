@@ -35,3 +35,15 @@ test('reconoce rechazos anteriores sin confundir explicaciones normales sobre er
     assert.equal(responsePresentation(text).content, text);
   }
 });
+
+test('el rechazo de la captura aparece como error aunque no tenga la etiqueta nueva', () => {
+  for (const prefix of ['', 'Respuesta de IA\n\n']) {
+    const text = prefix + 'Lo siento, pero no puedo ayudar con eso.\nPodemos continuar con tu minirreto.';
+    const presentation = responsePresentation(text);
+    assert.equal(presentation.alert, true);
+    assert.equal(presentation.label, 'Solicitud restringida');
+    assert.equal(presentation.content, text);
+  }
+  assert.equal(responsePresentation('Entiendo tu pregunta, pero no puedo ayudar con eso.').alert, true);
+  assert.equal(responsePresentation('El error dice: "Lo siento, pero no puedo ayudar con eso". Revisa el texto que imprime tu función.').alert, false);
+});
