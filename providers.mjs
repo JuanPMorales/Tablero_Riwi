@@ -1,5 +1,5 @@
 import { tutorPolicy } from './tutor-policy.mjs';
-import { redactAIText } from './ai-privacy.mjs';
+import { redactAIText, redactAIContent } from './ai-privacy.mjs';
 export { chatTurns } from './chat-context.mjs';
 
 export function providerFault(status, message) {
@@ -13,8 +13,10 @@ export function cloudRequest(connection, turns, privateValues = []) {
     throw providerFault(400, 'Revisa el modelo y la credencial del proveedor.');
   }
   const bearer = { Authorization: `Bearer ${credential}` };
-  const clean = value => redactAIText(value.replaceAll(credential, '[credencial omitida]'), privateValues);
-  const tutor = clean(tutorPolicy);
+  const clean = (value, health = true) => health
+    ? redactAIContent(value.replaceAll(credential, '[credencial omitida]'), privateValues)
+    : redactAIText(value.replaceAll(credential, '[credencial omitida]'), privateValues, { health: false });
+  const tutor = clean(tutorPolicy, false);
   turns = turns.map(({ role, content }) => ({ role, content: clean(content) }));
   if (provider === 'groq') return {
     url: 'https://api.groq.com/openai/v1/chat/completions', headers: bearer,

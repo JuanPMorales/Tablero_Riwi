@@ -1,4 +1,4 @@
-import { redactAIText } from './ai-privacy.mjs';
+import { redactAIText, redactAIContent } from './ai-privacy.mjs';
 
 const examples = [
   ['Crea dos ventas pequeñas y ejecuta el archivo de exploración antes de cargar la muestra completa.',
@@ -62,8 +62,8 @@ export async function localAnswer(model, turns, tutor, isGuide = false, signal) 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model, stream: false, think: false, options: { num_predict: isGuide ? 600 : 320, num_ctx: 8192 },
-      messages: [{ role: 'system', content: redactAIText(tutor) },
-        ...turns.map(({ role, content }) => ({ role, content: redactAIText(content) }))],
+      messages: [{ role: 'system', content: redactAIText(tutor, [], { health: false }) },
+        ...turns.map(({ role, content }) => ({ role, content: redactAIContent(content) }))],
     }),
   });
   if (!result.ok) throw new Error('Ollama no pudo responder.');

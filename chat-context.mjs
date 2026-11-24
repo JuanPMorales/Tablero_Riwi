@@ -1,4 +1,4 @@
-import { redactAIValue, redactAIText } from './ai-privacy.mjs';
+import { redactAIValue, redactAIText, assertAIQuestionSafe } from './ai-privacy.mjs';
 
 // Include the whole current day once, with numeric pointers to the selected exercise.
 export function lessonContext(lesson, { track, module, step = '', stepsDone = 0 }) {
@@ -21,6 +21,7 @@ export function lessonContext(lesson, { track, module, step = '', stepsDone = 0 
 
 // Bound repeated history without cutting code or editing the saved conversation.
 export function chatTurns(context, history, prompt, privateValues = []) {
+  assertAIQuestionSafe(prompt);
   const serialized = JSON.stringify(redactAIValue(context, privateValues));
   prompt = redactAIText(prompt, privateValues);
   const recent = history.slice(-6).map(({ role, content }) => ({ role,

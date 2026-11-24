@@ -1159,7 +1159,7 @@ async function askLocal(modelConnection, data, history, signal) {
     step: data.step, stepsDone: completed(day).count });
   const prompt = data.guide ? 'Guíame en este paso con un ejemplo y una prueba.' : data.message;
   const { tutorRules } = await import('/tutor-rules.mjs');
-  const messages = [{ role: 'system', content: redactAIText(tutorRules, privateValues) },
+  const messages = [{ role: 'system', content: redactAIText(tutorRules, privateValues, { health: false }) },
     ...chatTurns(context, history, prompt, privateValues)];
   const ollama = provider === 'ollama';
   if (ollama) await checkOllama(model, signal);
@@ -1312,6 +1312,10 @@ async function sendChat(data, useConnection = true) {
   ollamaRequest = controller;
   chatControls();
   try {
+    if (!data.guide) {
+      const { assertAIQuestionSafe } = await import('/ai-privacy.mjs');
+      assertAIQuestionSafe(data.message);
+    }
     if (data.guide && useConnection) {
       const saved = await api('/api/chat', { ...data, lookup: true }, controller?.signal);
       if (saved) {

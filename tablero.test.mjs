@@ -738,6 +738,13 @@ test('la solicitud real del tutor filtra el perfil y el historial antes de salir
       assert.ok(!result.json.slice(-2).some(message => message.content.includes(value)));
     }
     assert.deepEqual((await call('/api/auth/profile')).json, originalProfile);
+    const beforeHealth = await own.chatHistory(1, '0-0');
+    globalThis.fetch = async () => { throw new Error('No debe consultar al proveedor para información de salud'); };
+    const blocked = await call('/api/chat', { id: 1, step: '0-0', message: 'Mi diagnóstico es una enfermedad',
+      connection: { provider: 'groq', model: 'openai/gpt-oss-20b', credential, allowCharges: true } });
+    assert.equal(blocked.status, 400);
+    assert.match(blocked.json.error, /No se consultó al modelo ni se guardó/);
+    assert.deepEqual(await own.chatHistory(1, '0-0'), beforeHealth);
   } finally {
     globalThis.fetch = originalFetch;
     database.close();

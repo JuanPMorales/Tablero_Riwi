@@ -1,12 +1,25 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { profilePrivateValues, redactAIText } from './ai-privacy.mjs';
+import { profilePrivateValues, redactAIText, assertAIQuestionSafe } from './ai-privacy.mjs';
 import { chatTurns, lessonContext } from './chat-context.mjs';
 import { cloudRequest } from './providers.mjs';
 
 const profile = { fullName: 'Mariela Ficticia', document: '9876543210', phone: '+57 300 123 4567',
   email: 'mariela@example.test', clan: 'Ubuntu', account: 'not-for-provider' };
 const secrets = profilePrivateValues(profile);
+
+test('mensajes de salud se bloquean antes del envío y contenido antiguo se omite por completo', () => {
+  for (const text of ['Mi diagnóstico es una enfermedad', 'Paciente: Persona de prueba', 'Tengo diabetes', 'Información de salud']) {
+    assert.throws(() => assertAIQuestionSafe(text), { status: 400 });
+    assert.equal(redactAIText(text), '[contenido de salud omitido]');
+    assert.throws(() => chatTurns({}, [], text), { status: 400 });
+  }
+  assert.doesNotThrow(() => assertAIQuestionSafe('Diagnosticar la complejidad de una función con ventas'));
+  assert.doesNotThrow(() => assertAIQuestionSafe('Documenta síntoma, entrada, hipótesis y prueba para depurar'));
+  const turns = chatTurns({}, [{ role: 'user', content: 'Mi historia clínica es privada' },
+    { role: 'assistant', content: 'Entendido' }], 'Ayúdame con el ciclo');
+  assert.ok(!JSON.stringify(turns).includes('historia clínica'));
+});
 
 test('datos del perfil y patrones sensibles se sustituyen sin enviar el perfil como contexto', () => {
   const values = [profile.fullName, 'Mariela', profile.document, profile.phone, profile.email,

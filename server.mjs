@@ -9,7 +9,7 @@ import { accountAuth, digest } from './auth.mjs';
 import { chatTurns, cloudAnswer } from './providers.mjs';
 import { lessonContext } from './chat-context.mjs';
 import { tutorPolicy } from './tutor-policy.mjs';
-import { profilePrivateValues, redactAIText } from './ai-privacy.mjs';
+import { profilePrivateValues, redactAIText, assertAIQuestionSafe } from './ai-privacy.mjs';
 
 const { RIWI_ORIGIN, RIWI_MOODLE_TOKEN, CRON_SECRET, RIWI_OWNER_ACCOUNT_ID, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
 const googleOAuth = GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET ? GOOGLE_CLIENT_ID : null;
@@ -368,6 +368,7 @@ async function request(req, res, pathname) {
       if (history || p.lookup === true) return json(res, 200, history);
     }
     if (!guide && !text(p.message, 4000)) throw fault(400, 'Escribe una pregunta.');
+    if (!guide) assertAIQuestionSafe(p.message);
     if (!guide && !p.connection && !p.localAnswer && !RIWI_OLLAMA_MODEL) throw fault(503, 'Conecta un modelo para conversar.');
     const thread = account + '/' + lesson.id + '/' + threadStep;
     if (busy.has(thread) || (RIWI_OLLAMA_MODEL && busy.size)) throw fault(409, 'Ya hay una respuesta en curso.');
@@ -401,7 +402,7 @@ async function request(req, res, pathname) {
           const controller = new AbortController();
           res.once?.('close', () => controller.abort());
           try {
-            answer = await localAnswer(RIWI_OLLAMA_MODEL, chatTurns(context, history, prompt, privateValues), redactAIText(tutorPolicy, privateValues), Boolean(guide), controller.signal);
+            answer = await localAnswer(RIWI_OLLAMA_MODEL, chatTurns(context, history, prompt, privateValues), redactAIText(tutorPolicy, privateValues, { health: false }), Boolean(guide), controller.signal);
           } catch {
             if (controller.signal.aborted) return;
             if (!guide) throw fault(503, 'El modelo local no respondió. Revisa Ollama e inténtalo de nuevo.');

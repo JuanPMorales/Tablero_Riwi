@@ -1,4 +1,14 @@
 // Runs locally in the browser or server. Never serialize privateValues to a provider.
+const healthPattern = /\b(?:salud|historias? cl[ií]nicas?|expedientes? m[eé]dicos?|diagn[oó]sticos? (?:m[eé]dicos?|cl[ií]nicos?)|medicamentos?|medicaci[oó]n|recetas? m[eé]dicas?|enfermedad(?:es)?|embarazo|c[aá]ncer|vih|diabetes|depresi[oó]n)\b/iu;
+const clinicalFields = /\b(?:diagn[oó]stico|paciente|s[ií]ntomas?)\s*[:=]/iu;
+const hasHealthData = text => healthPattern.test(text) || clinicalFields.test(text);
+
+export function assertAIQuestionSafe(text) {
+  if (hasHealthData(String(text ?? ''))) throw Object.assign(
+    new Error('El mensaje parece incluir información de salud. No se consultó al modelo ni se guardó esta pregunta. Reformula el ejercicio con datos ficticios de otro tema, como productos o ventas.'),
+    { status: 400 });
+}
+
 export function profilePrivateValues(profile) {
   if (!profile) return [];
   return [profile.document, profile.email, profile.phone, profile.fullName,
@@ -6,8 +16,9 @@ export function profilePrivateValues(profile) {
     .filter(value => typeof value === 'string' && value.trim());
 }
 
-export function redactAIText(value, privateValues = []) {
+export function redactAIText(value, privateValues = [], { health = true } = {}) {
   let text = String(value ?? '');
+  if (health && hasHealthData(text)) return '[contenido de salud omitido]';
   for (const secret of [...new Set(privateValues)].filter(value => typeof value === 'string' && value.trim())
     .sort((a, b) => b.length - a.length)) {
     const escaped = secret.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -35,4 +46,12 @@ export function redactAIValue(value, privateValues = []) {
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value)
     .map(([key, item]) => [key, redactAIValue(item, privateValues)]));
   return value;
+}
+
+export function redactAIContent(value, privateValues = []) {
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === 'object') return JSON.stringify(redactAIValue(parsed, privateValues));
+  } catch { /* Plain text and incomplete code are filtered without parsing. */ }
+  return redactAIText(value, privateValues);
 }
