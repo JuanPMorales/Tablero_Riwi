@@ -290,6 +290,18 @@
     return formatted;
   }
 
-  globalThis.RiwiChatBlocks = { describe, highlight, markdown, renderDocument, wrap, message };
+  function responsePresentation(content) {
+    const text = String(content || '');
+    const body = text.replace(/^Respuesta de IA\s*\n+/u, '').trimStart();
+    const tagged = /^\[(RESTRINGIDO|ERROR)\]\s*/u.exec(body);
+    const hiddenHealth = body === '[contenido de salud omitido]';
+    const firstParagraph = body.split(/\n\s*\n/u)[0].slice(0, 600);
+    const refusal = !firstParagraph.includes('```') && /(?:^(?:lo siento[,.]?\s*)?no puedo (?:ayudarte con|ayudar con|proporcionar|facilitar|cumplir|darte la soluci[oó]n|resolver (?:tu|el) (?:examen|evaluaci[oó]n))|\bpero no puedo (?:ayudarte con|proporcionar|facilitar)|fuera de mi alcance|fuera del alcance del tutor|solo puedo ayudarte con programaci[oó]n)/iu.test(firstParagraph);
+    return { alert: Boolean(tagged || refusal || hiddenHealth), label: tagged?.[1] === 'ERROR' ? 'No se pudo completar' : 'Solicitud restringida',
+      content: hiddenHealth ? 'El contenido no se muestra para proteger información sensible. Reformula el ejercicio con datos ficticios.'
+        : tagged ? body.slice(tagged[0].length) : text };
+  }
+
+  globalThis.RiwiChatBlocks = { describe, highlight, markdown, renderDocument, wrap, message, responsePresentation };
 })();
 

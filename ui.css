@@ -460,6 +460,9 @@ input::file-selector-button { background: var(--blue); color: var(--white); bord
 .profile-dialog .muted { margin-bottom: 16px; }
 .profile-dialog .status:not(:empty) { background: var(--success-bg); color: var(--success-text); margin-bottom: 14px; }
 .profile-dialog .status[data-error] { background: var(--danger-bg); color: var(--danger); }
+.messages .msg.chat-alert { color: var(--danger); background: var(--danger-bg); border: 1px solid var(--danger); border-radius: 12px; padding: 14px 16px; }
+.messages .msg.chat-alert .message-role, .messages .msg.chat-alert .chat-message-text,
+.messages .msg.chat-alert .chat-markdown, .messages .msg.chat-alert a { color: var(--danger); }
 .secondary, .outline { color: var(--blue); }
 .white-button, .text-button { background: var(--white); color: var(--blue); }
 .danger, .chat-workspace-actions .danger, #chat-list .danger { color: var(--danger); background: var(--danger-bg); border-color: var(--danger); }

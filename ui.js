@@ -975,15 +975,28 @@ $('history-clear').onclick = () => {
 };
 function renderMessages(history) {
   const list = $('messages');
+  list.querySelectorAll('.chat-transient-alert').forEach(node => node.remove());
   const keep = threadHistory.length <= history.length && threadHistory.every((row, index) =>
     row.role === history[index].role && row.content === history[index].content && row.created === history[index].created);
   const start = keep && threadHistory.length ? threadHistory.length : 0;
   if (!start) list.replaceChildren();
   threadHistory = history;
-  list.append(...history.slice(start).map(row => box('article', 'card msg ' + row.role,
-    el('p', row.role === 'user' ? 'Tú' : 'Asistente Riwi', 'message-role'),
-    RiwiChatBlocks.message(row.content, status))));
+  list.append(...history.slice(start).map(row => {
+    const presentation = row.role === 'assistant' ? RiwiChatBlocks.responsePresentation(row.content) : { alert: false, content: row.content };
+    return box('article', 'card msg ' + row.role + (presentation.alert ? ' chat-alert' : ''),
+      el('p', row.role === 'user' ? 'Tú' : presentation.alert ? 'Asistente Riwi · ' + presentation.label : 'Asistente Riwi', 'message-role'),
+      RiwiChatBlocks.message(presentation.content, status));
+  }));
   chatControls();
+}
+function showChatError(message) {
+  const list = $('messages');
+  list.querySelectorAll('.chat-transient-alert').forEach(node => node.remove());
+  const card = box('article', 'card msg assistant chat-alert chat-transient-alert',
+    el('p', 'Asistente Riwi · No se pudo completar', 'message-role'), el('p', message));
+  card.setAttribute('role', 'alert');
+  list.append(card);
+  card.scrollIntoView({ block: 'nearest' });
 }
 const connectWithKey = 'Pega la clave en este formulario, confirma el uso de tu cuota y pulsa Conectar. Envía una pregunta nueva para probar.';
 const modelOptions = {
@@ -1463,7 +1476,10 @@ async function sendChat(data, useConnection = true) {
     status('Conversación guardada con filtrado de datos personales detectables.');
   } catch (error) {
     if (controller?.signal.aborted) status('Respuesta cancelada.');
-    else status(error.message, true);
+    else {
+      if (sameChat(focus, data)) showChatError(error.message);
+      status(error.message, true);
+    }
   } finally {
     ollamaRequest = undefined;
     chatPending = false;

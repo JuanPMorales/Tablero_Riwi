@@ -185,4 +185,6 @@ No subas credenciales, cookies, tokens, cédulas reales, perfiles, exportaciones
 
 ## Paleta de la aplicación
 
+Las respuestas restringidas del tutor se muestran en rojo con la etiqueta visible «Solicitud restringida». El tutor usa el marcador `[RESTRINGIDO]`, que se conserva en el historial pero se oculta en pantalla. También se reconocen ciertos rechazos antiguos sin marcador. Los errores de conexión, cuota o validación aparecen como avisos rojos dentro del chat, sin guardarse como mensajes ni reenviarse al modelo. Una explicación normal sobre un error de código no se considera un rechazo. Se usa el rojo `#B33856` y el fondo `#FFF0F3` de la paleta existente.
+
 Los controles y estados usan exclusivamente la paleta definida en `ui.css`: principal `#382CCE`, destacado `#440885`, selección `#8660E7`, menú `#271044`, progreso `#43CADB`, fondo `#F6F5FA`, tarjetas `#FFFFFF`, etiquetas `#F0EBFC`, texto `#24133E`, texto secundario `#777189`, texto del menú `#C9B8E1`, bordes `#E8E3F0`, confirmación `#E4F7F8` con texto `#17636E`, y errores o eliminación `#B33856` sobre `#FFF0F3`.
