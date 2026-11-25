@@ -57,6 +57,29 @@ test('clave cifrada sobrevive a reiniciar la base sin devolverse en metadatos ni
   }
 });
 
+test('reemplazar y borrar una clave solo cambia la conexión de su cuenta', async () => {
+  const store = await openStore(':memory:'), previous = process.env.RIWI_CREDENTIAL_KEY;
+  process.env.RIWI_CREDENTIAL_KEY = randomBytes(32).toString('base64');
+  try {
+    const account = await create(store, details.document), other = await create(store, '9000000622');
+    const vault = credentialVault(store.db);
+    await vault.save(account, connection);
+    await vault.save(other, connection);
+    const replacement = { provider: 'openai', model: 'modelo-de-prueba', credential: 'otra-clave-ficticia-para-pruebas' };
+    await vault.save(account, replacement);
+    assert.equal((await vault.load(account)).credential, replacement.credential);
+    assert.equal((await vault.metadata(account)).provider, replacement.provider);
+    assert.equal((await vault.load(other)).credential, connection.credential);
+    assert.equal((await store.db.execute('SELECT COUNT(*) AS total FROM account_ai_connections WHERE account=?', [account])).rows[0].total, 1);
+    await vault.forget(account);
+    await assert.rejects(vault.load(account), { status: 404 });
+    assert.equal((await vault.load(other)).credential, connection.credential);
+  } finally {
+    store.close();
+    if (previous === undefined) delete process.env.RIWI_CREDENTIAL_KEY; else process.env.RIWI_CREDENTIAL_KEY = previous;
+  }
+});
+
 test('sin clave maestra el guardado falla cerrado, sin usar texto plano ni aceptar OAuth', async () => {
   const store = await openStore(':memory:'), previous = process.env.RIWI_CREDENTIAL_KEY;
   delete process.env.RIWI_CREDENTIAL_KEY;

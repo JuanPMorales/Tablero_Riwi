@@ -153,6 +153,8 @@ En Conectar un modelo puedes marcar **Guardar mi clave cifrada** para Groq, Open
 
 La API de consulta devuelve únicamente proveedor, modelo y estado del guardado. Al volver a ingresar se recupera esa referencia y la clave se descifra exclusivamente en el servidor al consultar al proveedor. El cliente no puede indicar el ID de otra cuenta para utilizarla. Se requiere permiso de IA externa y autorización de uso de cuota; ese permiso sigue aplicándose aunque haya una clave guardada. **Desconectar** no borra el cifrado; **Olvidar clave guardada** sí lo elimina. Eliminar la cuenta también lo retira. Las sesiones OAuth y conexiones locales no se guardan como claves de API; los respaldos de la aplicación excluyen estos registros.
 
+Para **cambiar la clave guardada**, introduce la nueva clave en Conectar un modelo, selecciona su proveedor y modelo, marca Guardar mi clave cifrada y conecta. Se reemplaza la conexión anterior de esa cuenta; no hay que eliminarla antes. Para eliminarla sin reemplazo, pulsa Olvidar clave guardada. Borrarla del tablero no revoca la clave en el proveedor: esa revocación se hace en Groq, OpenAI, Claude o Gemini.
+
 En el cuadro de mensajes, **Enter** envía y **Shift+Enter** añade una línea. No se envían mensajes vacíos, mientras hay un envío pendiente ni durante la composición del teclado.
 
 ## Verificación y recuperación por correo

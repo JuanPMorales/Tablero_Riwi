@@ -1139,7 +1139,7 @@ function updateSavedConnectionControls() {
   $('remember-connection').disabled = !saved?.configured;
   $('use-saved-connection').hidden = $('forget-saved-connection').hidden = !saved?.saved;
   $('use-saved-connection').disabled = !saved?.configured || !state?.privacy?.externalAIAllowed;
-  $('saved-connection-status').textContent = saved?.saved ? `Clave guardada para ${providerLabels[saved.provider]}. Su valor no se muestra.`
+  $('saved-connection-status').textContent = saved?.saved ? `Clave guardada para ${providerLabels[saved.provider]}. Solo tu cuenta puede usarla; su valor no se muestra. Para cambiarla, introduce la nueva clave, marca «Guardar mi clave cifrada» y conecta: reemplazará la anterior. Para eliminarla, usa «Olvidar clave guardada».`
     : saved?.configured ? 'Puedes guardar una clave por cuenta. Los demás usuarios no pueden verla ni usarla.'
     : 'El guardado cifrado aún no está configurado. Puedes usar una clave solo durante esta sesión.';
 }

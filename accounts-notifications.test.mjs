@@ -50,11 +50,11 @@ test('horario y eliminación de avisos persisten por cuenta sin regenerar lo eli
     assert.equal((await first.snapshot()).notices.length, 0);
     assert.equal(await first.makeNotice(new Date('2026-11-23T15:30:00Z')), false);
     assert.equal(await second.makeNotice(new Date('2026-11-24T13:15:00Z')), true);
-    assert.equal((await second.snapshot()).notices.length, 1);
+    assert.equal((await second.snapshot(new Date('2026-11-24T13:15:00Z'))).notices.length, 1);
     store.close(); store = await openStore(path);
     assert.deepEqual((await store.forAccount('primera').snapshot()).notificationSchedule, { days: [1], time: '09:30' });
     assert.equal((await store.forAccount('primera').snapshot()).notices.length, 0);
-    assert.equal((await store.forAccount('segunda').snapshot()).notices.length, 1);
+    assert.equal((await store.forAccount('segunda').snapshot(new Date('2026-11-24T13:15:00Z'))).notices.length, 1);
     await store.forAccount('primera').setNotificationSchedule({ days: [], time: '00:00' });
     assert.equal(await store.forAccount('primera').makeNotice(new Date('2026-11-30T18:00:00Z')), false);
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
